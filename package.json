@@ -170,6 +170,7 @@
     "languageModelTools": [
       {
         "name": "telegram_reply",
+        "toolReferenceName": "telegram_reply",
         "tags": ["telegram", "notification", "bridge", "mobile"],
         "displayName": "Send Telegram reply",
         "modelDescription": "Sends a text message to the Telegram user who last sent a request through the Telegram Bridge extension. Call this tool when you have completed a task that was requested via Telegram, to notify the user on their mobile phone. The user may be away from the computer (e.g. on a couch) and is waiting for a result summary. The message supports Telegram Markdown formatting: *bold*, _italic_, `inline code`, ```multiline code block```. Keep the message informative but concise: summarise what was done, which files were changed, and any important results or warnings.",

@@ -16,12 +16,15 @@ Send messages from **Telegram directly into VS Code Copilot / AI Chat**. The bri
                                         [Reply sent back to Telegram]
 ```
 
-### Two modes
+### Three delivery modes
 
-| Mode | Description |
-|---|---|
-| **direct** _(default)_ | Telegram message is sent directly into the Copilot Chat input and submitted automatically. One-way. |
-| **participant** | Message is routed through the `@tg` chat participant, which calls the Copilot LM and sends the response back to Telegram. Two-way. |
+| Mode | Default | Description | Reply back to Telegram |
+|---|---|---|---|
+| **inject** | ✅ yes | Message is placed into the existing VS Code Chat input box. Preserves the full current conversation context. Auto-submitted after a short delay. | ❌ one-way |
+| **direct** | | Like inject, but submitted immediately without delay. | ❌ one-way |
+| **participant** (`@tg`) | | Message goes through the `@tg` chat participant, which calls Copilot with full workspace tool access and sends the response back to Telegram. | ✅ two-way |
+
+> **Key note:** Only `participant` mode can send replies back to Telegram. In `inject` and `direct` modes VS Code offers no API hook to capture what Copilot answered — those modes are intentionally fire-and-forget.
 
 ---
 
@@ -202,15 +205,86 @@ When a message arrives from Telegram, VS Code automatically opens the chat with 
 
 ---
 
+## Supported scenarios
+
+### Scenario 1 — Couch / mobile workflow (inject mode)
+
+> *You're on the sofa with your phone. VS Code is running on your desk. You dictate tasks; Copilot executes them. You don't need the reply on your phone — you'll check the result when you sit back down.*
+
+**Settings:**
+```jsonc
+"telegramBridge.chatMode": "inject",
+"telegramBridge.autoSubmit": true,
+"telegramBridge.submitDelay": 2000,
+"telegramBridge.workspaceContext": "agent",
+"telegramBridge.prefixMessage": false
+```
+
+**Flow:**
+1. Open VS Code, start the bridge (`Cmd+Shift+P` → **Start bridge**)
+2. From mobile: *"Refactor the auth module to use async/await"*
+3. VS Code injects the text into the current Copilot Chat input
+4. After 2 s the message is auto-submitted; Copilot begins working in agent mode
+5. Check the result when you return to the desk
+
+**Tip:** Press Escape within the `submitDelay` window to cancel before submission.
+
+---
+
+### Scenario 2 — Two-way remote control (participant mode)
+
+> *You want a quick answer delivered back to Telegram — e.g. "Is the deployment pipeline green?" or "How many TODOs are left in the codebase?"*
+
+**Settings:**
+```jsonc
+"telegramBridge.chatMode": "participant",
+"telegramBridge.workspaceContext": "agent"
+```
+
+**Flow:**
+1. Send from Telegram: *"Summarise what's in CHANGELOG.md"*
+2. VS Code opens `@tg <message>` in Copilot Chat
+3. The `@tg` participant runs a tool-calling loop — reads files, searches the workspace
+4. Copilot's full response is sent back to your Telegram chat automatically
+5. No need to look at VS Code at all
+
+**Tip:** Long answers are automatically split into ≤ 4 096-character chunks.
+
+---
+
+### Scenario 3 — Multi-project routing
+
+> *You have several VS Code windows open (e.g. `frontend`, `backend`, `infra`). You want Telegram messages to go to the right project.*
+
+**Flow:**
+1. All windows run the bridge simultaneously
+2. Switch focus to the `backend` window → `Cmd+Shift+P` → **Set as active workspace**
+3. Status bar shows `⬛ TG ✓ backend` (orange) there and `⬛ TG ⏸` (grey) elsewhere
+4. Telegram messages now go only to `backend` until you switch again
+
+---
+
+### Scenario 4 — On-desk quick confirmation
+
+> *VS Code is right in front of you. You finished a task and want to ping your phone without picking it up.*
+
+**Flow:**
+1. Any chat mode — work normally on the desktop
+2. When done: `Cmd+Shift+P` → **✅ Reply 'Done!' to Telegram** (or click the sidebar button)
+3. Your phone receives: *"✅ Done!"*
+4. For a custom message: **📤 Send custom reply to Telegram**
+
+---
+
 ## Mobile workflow example
 
-A typical use case when working from your phone:
+A typical day using the couch workflow:
 
-1. **Morning** — open your project in VS Code, bridge auto-starts and becomes the active receiver
+1. **Morning** — open your project in VS Code, start the bridge; it becomes the active receiver
 2. **From mobile** — send: `Add a CSV export function to the dashboard`
-3. **VS Code** — Copilot Chat opens automatically with the message, processes it
+3. **VS Code** — Copilot Chat opens automatically with the message; agent mode processes it
 4. **Click "✅ Done!"** in the VS Code notification → Telegram receives a confirmation
-5. **New idea while away** — send another message → VS Code processes it immediately if running, or on next launch
+5. **New idea while away** — send another message; VS Code processes it immediately if running
 
 ---
 
@@ -238,3 +312,17 @@ A typical use case when working from your phone:
 
 **Messages go to the wrong VS Code window**
 → Switch focus to the correct window and run **Telegram Bridge: Set as active workspace**.
+
+---
+
+## Releases
+
+Pre-built `.vsix` files are attached to every [GitHub Release](https://github.com/jirisedy/telegram-bridge/releases).
+The release is created automatically by the CI workflow when a `v*` tag is pushed:
+
+```bash
+git tag v0.1.4
+git push origin v0.1.4
+```
+
+See [CHANGELOG.md](CHANGELOG.md) for a full history of changes.

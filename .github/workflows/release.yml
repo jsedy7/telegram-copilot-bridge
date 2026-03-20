@@ -1,0 +1,56 @@
+name: Release
+
+# Triggered when you push a version tag, e.g.:
+#   git tag v0.1.4 && git push origin v0.1.4
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write   # required to create a GitHub Release and upload assets
+
+jobs:
+  release:
+    name: Build and publish .vsix
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build and package extension
+        # Produces telegram-bridge-X.Y.Z.vsix in the workspace root.
+        # --no-dependencies: do not bundle node_modules (webpack already bundles everything).
+        run: npx @vscode/vsce package --no-dependencies
+
+      - name: Locate .vsix file
+        id: vsix
+        run: echo "file=$(ls *.vsix | head -1)" >> "$GITHUB_OUTPUT"
+
+      - name: Extract changelog section for this version
+        # Reads everything between the current version heading and the next one.
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          awk "/^## \[$VERSION\]/{found=1; next} found && /^## \[/{exit} found{print}" \
+            CHANGELOG.md > release_notes.md
+          echo "--- Built from tag $GITHUB_REF_NAME ---" >> release_notes.md
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: "${{ github.ref_name }}"
+          body_path: release_notes.md
+          files: ${{ steps.vsix.outputs.file }}
+          draft: false
+          # Tags containing a hyphen (e.g. v0.2.0-beta.1) are marked as pre-release.
+          prerelease: ${{ contains(github.ref_name, '-') }}

@@ -20,11 +20,11 @@ Send messages from **Telegram directly into VS Code Copilot / AI Chat**. The bri
 
 | Mode | Default | Description | Reply back to Telegram |
 |---|---|---|---|
-| **inject** | ✅ yes | Message is placed into the existing VS Code Chat input box. Preserves the full current conversation context. Auto-submitted after a short delay. | ❌ one-way |
-| **direct** | | Like inject, but submitted immediately without delay. | ❌ one-way |
-| **participant** (`@tg`) | | Message goes through the `@tg` chat participant, which calls Copilot with full workspace tool access and sends the response back to Telegram. | ✅ two-way |
+| **inject** | ✅ yes | Message is placed into the existing VS Code Chat input box. Preserves the full current conversation context. Auto-submitted after a short delay. | Via `telegram_reply` MCP tool (see Scenario 5) |
+| **direct** | | Like inject, but submitted immediately without delay. | Via `telegram_reply` MCP tool |
+| **participant** (`@tg`) | | Message goes through the `@tg` chat participant, which calls Copilot with full workspace tool access and sends the response back to Telegram automatically. | ✅ always automatic |
 
-> **Key note:** Only `participant` mode can send replies back to Telegram. In `inject` and `direct` modes VS Code offers no API hook to capture what Copilot answered — those modes are intentionally fire-and-forget.
+> **How replies work in inject/direct mode:** the `telegram_reply` MCP tool is registered automatically. When Copilot finishes a task, it can call the tool to send a summary back to Telegram. Add *"When done, call telegram_reply"* to your message or put the instruction in `AGENTS.md` once.
 
 ---
 
@@ -195,13 +195,40 @@ The status bar reflects the current state:
 
 ## Participant mode (@tg)
 
-In two-way mode (`"chatMode": "participant"`), you can also type `@tg` directly inside VS Code Chat:
+In `"chatMode": "participant"`, the `@tg` chat participant handles every incoming Telegram message. It runs a full tool-calling loop (reads/writes files, searches workspace) and sends the Copilot response back to Telegram automatically — no extra instruction needed.
+
+You can also invoke `@tg` manually inside VS Code Chat:
 
 ```
 @tg Write a unit test for the parseDate function in TypeScript
 ```
 
-When a message arrives from Telegram, VS Code automatically opens the chat with `@tg <your message>`. Copilot responds in the chat and the response is also sent back to Telegram.
+---
+
+## `telegram_reply` MCP tool
+
+The extension registers a local MCP server automatically on first run. This exposes the `telegram_reply` tool to **all** Copilot agents — including agent mode in `inject` and `direct` chat modes.
+
+**First-run setup (automatic):**
+- `mcp-server.js` is copied to `~/.vscode-telegram-bridge/mcp-server.js`
+- An entry is added to `mcp.servers` in your global `settings.json`
+- A "Restart now" notification appears — click it to activate the tool
+
+**Usage in Copilot Chat:**
+```
+Refactor the auth module. When done, call telegram_reply with a summary.
+```
+Or reference the tool directly:
+```
+#telegram_reply Test message from VS Code
+```
+
+**Tool input:**
+```json
+{ "message": "text — Telegram Markdown supported: *bold* _italic_ `code`" }
+```
+
+Messages longer than 4 096 characters are split automatically.
 
 ---
 
@@ -274,9 +301,36 @@ When a message arrives from Telegram, VS Code automatically opens the chat with 
 3. Your phone receives: *"✅ Done!"*
 4. For a custom message: **📤 Send custom reply to Telegram**
 
----
+### Scenario 5 — Hybrid: inject + telegram_reply (best of both worlds)
 
-## Mobile workflow example
+> *You want the full conversation context of inject mode AND a reply on your phone when Copilot finishes.*
+
+**Settings:**
+```jsonc
+"telegramBridge.chatMode": "inject",
+"telegramBridge.autoSubmit": true,
+"telegramBridge.submitDelay": 2000,
+"telegramBridge.workspaceContext": "agent",
+"telegramBridge.prefixMessage": false
+```
+
+**One-time setup in `AGENTS.md`** (root of your project):
+```markdown
+When you have finished a task that arrived via Telegram,
+call the telegram_reply tool and summarise: what was done,
+which files changed, and any warnings or next steps.
+```
+
+**Flow:**
+1. Send from Telegram: *"Add CSV export to the dashboard"*
+2. VS Code injects into the existing chat — full context preserved
+3. Copilot works in agent mode (reads/writes files)
+4. At the end Copilot calls `telegram_reply` automatically
+5. Your phone receives a summary — without touching the PC
+
+**This is the recommended setup for the gauč workflow.**
+
+---
 
 A typical day using the couch workflow:
 

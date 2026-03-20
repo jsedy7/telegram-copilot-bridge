@@ -6,7 +6,95 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.1.6] - 2026-03-20
+
+### Fixed
+
+- **Duplicate poller conflict** — when two VS Code windows both ran the bridge, Telegram returned `Conflict: terminated by other getUpdates request` in a tight loop, and neither instance processed messages. Now: on receiving a Conflict error, the poller sets `running=false` and stops immediately instead of retrying. A VS Code notification appears (*"⚠️ Jiná instance bridge je aktivní"*) with a **Spustit znovu zde** button to take over from the current window.
+- HTTP server and port file are now also cleaned up when the poller self-stops due to a Conflict.
+
+---
+
 ## [0.1.5] - 2026-03-20
+
+### Added
+
+- **Local MCP server** (`resources/mcp-server.js`) — a self-contained zero-dependency Node.js stdio server implementing the Model Context Protocol. Exposes `telegram_reply` as a proper MCP tool that Copilot agent mode discovers natively.
+- **HTTP bridge** (`127.0.0.1:{random-port}/send`) — the VS Code extension starts a local HTTP server when the bridge is running. The MCP server POSTs to it. Listens on loopback only; no external exposure.
+- **Auto-registration** — on first activation the extension copies `mcp-server.js` to `~/.vscode-telegram-bridge/mcp-server.js` and adds the server to `mcp.servers` in global `settings.json`. A "Restart now" notification appears; after reload, `telegram_reply` is available in Copilot as a real MCP tool.
+- **Node.js binary detection** — tries common macOS/Linux paths before falling back to `node` in PATH.
+
+### Changed
+
+- `stopBridge()` and `deactivate()` now also stop the HTTP server and clean up the port file.
+
+---
+
+## [0.1.4] - 2026-03-20
+
+### Added
+
+- **`telegram_reply` LM tool** — registered via `vscode.lm.registerTool` and declared in `package.json` under `languageModelTools`. Superseded in v0.1.5 by the MCP server approach which is properly visible to Copilot Chat.
+- Extension version now shown in Output Channel on startup, status bar tooltip on hover, and in tool call results.
+
+---
+
+## [0.1.3] - 2026-03-20
+
+### Fixed
+
+- **`@tg` participant now has full workspace file access.** Rewrote `chatParticipant.ts` with a complete tool-calling loop using `vscode.lm.tools` + `vscode.lm.invokeTool`. The `@tg` participant now reads/writes files and searches the workspace exactly like `@workspace`, and still sends the Copilot response back to Telegram.
+- Used `request.model` (user's currently active Copilot model) instead of the deprecated `vscode.lm.selectChatModels`.
+- Fixed `TS2504` compile error: iterate `response.stream` instead of `response` directly.
+- `stream.progress()` now displays the name of the tool being invoked (e.g. `🔧 vscode_readFile`).
+
+### Added
+
+- **Timestamp logging** — all Output Channel entries now include `[HH:MM:SS]` timestamps.
+- **`sendReplyWithRetry()`** — shared helper with **Retry** and **View Log** buttons on send failure.
+
+---
+
+## [0.1.2] - 2026-03-19
+
+### Added
+
+- **`inject` mode** (new default `chatMode`): places the Telegram message into the existing VS Code Chat input box, preserving the full conversation context.
+- **`autoSubmit`** setting (default `true`): automatically submits after a configurable delay. Set to `false` to review before pressing Enter.
+- **`submitDelay`** setting (default `1500 ms`): time before auto-submit; press Escape to cancel.
+- **`workspaceContext`** setting (`none` / `workspace` / `agent`): controls whether `@workspace` or `/new` is prepended.
+
+### Fixed
+
+- **`/chatid` chicken-and-egg problem** — `/chatid` and `/start` now always bypass the allowlist.
+
+---
+
+## [0.1.1] - 2026-03-18
+
+### Added
+
+- **Multi-window routing** via `globalState` — only the active window processes incoming messages.
+- **`Set as active workspace`** command.
+- **`Reply 'Done!'`** and **`Send custom reply`** commands.
+- **Activity Bar sidebar** (`StatusViewProvider`) with live status, auto-refresh every 5 s.
+- Extension icon (`resources/icon.svg`).
+
+---
+
+## [0.1.0] - 2026-03-17
+
+### Added
+
+- Initial release.
+- Telegram long-polling with zero external dependencies (Node.js `https` only).
+- `direct` mode: auto-submit into Copilot Chat.
+- `participant` mode (`@tg`): two-way bridge — replies sent back to Telegram.
+- Setup wizard — bot token stored in VS Code Secrets API, never in `settings.json`.
+- Chat ID allowlist — secure-by-default.
+- Status bar item with one-click toggle.
+- Output Channel with debug logs.
+
 
 ### Added
 

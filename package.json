@@ -1,0 +1,162 @@
+{
+  "name": "telegram-bridge",
+  "displayName": "Telegram Bridge for Copilot Chat",
+  "description": "Bridge between Telegram and VS Code Copilot / AI Chat. Send messages from Telegram directly into the VS Code chat window.",
+  "version": "0.1.1",
+  "publisher": "local-dev",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/jirisedy/telegram-bridge.git"
+  },
+  "bugs": {
+    "url": "https://github.com/jirisedy/telegram-bridge/issues"
+  },
+  "homepage": "https://github.com/jirisedy/telegram-bridge#readme",
+  "engines": {
+    "vscode": "^1.93.0"
+  },
+  "categories": ["Other", "AI"],
+  "keywords": ["telegram", "copilot", "chat", "bridge", "ai"],
+  "activationEvents": ["onStartupFinished"],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "telegram-bridge.configure",
+        "title": "Telegram Bridge: Průvodce nastavením",
+        "icon": "$(gear)"
+      },
+      {
+        "command": "telegram-bridge.start",
+        "title": "Telegram Bridge: Spustit bridge",
+        "icon": "$(play)"
+      },
+      {
+        "command": "telegram-bridge.stop",
+        "title": "Telegram Bridge: Zastavit bridge",
+        "icon": "$(stop)"
+      },
+      {
+        "command": "telegram-bridge.toggle",
+        "title": "Telegram Bridge: Přepnout",
+        "icon": "$(broadcast)"
+      },
+      {
+        "command": "telegram-bridge.showLog",
+        "title": "Telegram Bridge: Zobrazit log",
+        "icon": "$(output)"
+      },
+      {
+        "command": "telegram-bridge.setAsActive",
+        "title": "Telegram Bridge: Nastavit jako aktivní workspace",
+        "icon": "$(pin)"
+      },
+      {
+        "command": "telegram-bridge.replyDone",
+        "title": "Telegram Bridge: ✅ Odpovědět 'Hotovo!' do Telegramu",
+        "icon": "$(check)"
+      },
+      {
+        "command": "telegram-bridge.replyCustom",
+        "title": "Telegram Bridge: 📤 Odeslat vlastní odpověď do Telegramu",
+        "icon": "$(reply)"
+      }
+    ],
+    "configuration": {
+      "title": "Telegram Bridge",
+      "properties": {
+        "telegramBridge.allowedChatIds": {
+          "type": "array",
+          "items": { "type": "string" },
+          "default": [],
+          "description": "Povolená Telegram Chat ID (nechte prázdné pro povolení všech – POZOR: bezpečnostní riziko!)"
+        },
+        "telegramBridge.autoStart": {
+          "type": "boolean",
+          "default": false,
+          "description": "Automaticky spustit bridge při startu VS Code"
+        },
+        "telegramBridge.chatMode": {
+          "type": "string",
+          "enum": ["direct", "participant"],
+          "enumDescriptions": [
+            "Direktní režim: zpráva jde přímo do Copilot chatu (jednosměrný tok)",
+            "Účastník @tg: zpráva jde přes @tg, odpověď se odešle zpět do Telegramu (obousměrný)"
+          ],
+          "default": "direct",
+          "description": "Režim přenosu zpráv"
+        },
+        "telegramBridge.prefixMessage": {
+          "type": "boolean",
+          "default": true,
+          "description": "Přidat prefix '📱 [Telegram]:' před zprávu v chatu"
+        }
+      }
+    },
+    "chatParticipants": [
+      {
+        "id": "telegram-bridge.tg",
+        "name": "tg",
+        "description": "Telegram Bridge – přijímá zprávy z Telegramu a odpovídá přes Copilot. Odpoví zpět do Telegramu.",
+        "isSticky": false
+      }
+    ],
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "telegram-bridge-sidebar",
+          "title": "Telegram Bridge",
+          "icon": "resources/icon.svg"
+        }
+      ]
+    },
+    "views": {
+      "telegram-bridge-sidebar": [
+        {
+          "id": "telegram-bridge.statusView",
+          "name": "Status"
+        }
+      ]
+    },
+    "menus": {
+      "view/title": [
+        {
+          "command": "telegram-bridge.toggle",
+          "when": "view == telegram-bridge.statusView",
+          "group": "navigation@1"
+        },
+        {
+          "command": "telegram-bridge.setAsActive",
+          "when": "view == telegram-bridge.statusView",
+          "group": "navigation@2"
+        },
+        {
+          "command": "telegram-bridge.replyDone",
+          "when": "view == telegram-bridge.statusView",
+          "group": "navigation@3"
+        },
+        {
+          "command": "telegram-bridge.configure",
+          "when": "view == telegram-bridge.statusView",
+          "group": "navigation@4"
+        }
+      ]
+    }
+  },
+  "scripts": {
+    "compile": "webpack --mode development",
+    "watch": "webpack --mode development --watch",
+    "package": "npm run compile -- --mode production && vsce package --no-dependencies",
+    "vscode:prepublish": "webpack --mode production"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.0",
+    "@types/vscode": "^1.93.0",
+    "ts-loader": "^9.5.1",
+    "typescript": "^5.5.0",
+    "webpack": "^5.92.0",
+    "webpack-cli": "^5.1.4",
+    "@vscode/vsce": "^3.1.0"
+  }
+}

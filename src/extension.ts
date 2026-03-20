@@ -431,6 +431,20 @@ async function startBridge(context: vscode.ExtensionContext): Promise<void> {
     (msg) => handleTelegramMessage(msg, context, cfg),
     (err) => {
       logInfo(`[bridge] Chyba: ${err.message}`);
+      // Conflict = dvě instance polleru. Zastav a upozorni.
+      if (err.message.includes('Conflict')) {
+        poller = undefined;
+        stopHttpServer();
+        setStatusBar(false, false);
+        statusViewProvider?.update({ running: false, isActive: false });
+        void vscode.window.showWarningMessage(
+          '⚠️ Telegram Bridge: Conflict — jiná instance bridge je aktivní v jiném VS Code okně. ' +
+          'Tento poller byl zastaven.',
+          'Spustit znovu zde',
+        ).then((action) => {
+          if (action === 'Spustit znovu zde') void startBridge(context);
+        });
+      }
     },
   );
 

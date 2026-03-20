@@ -210,7 +210,17 @@ export class TelegramPoller {
               }
             }
           } else {
-            this.onError(new Error(`Telegram getUpdates: ${parsed.description ?? 'unknown error'}`));
+            const errMsg = parsed.description ?? 'unknown error';
+            // Conflict = jiná instance polleru vyhrála. Zastav se aby nebyly dvě instance.
+            if (errMsg.toLowerCase().includes('conflict')) {
+              this.running = false;
+              this.onError(new Error(
+                `Telegram getUpdates: Conflict – jiná instance bridge je aktivní. ` +
+                `Tento poller se zastavil. Spusť bridge znovu v aktivním okně.`,
+              ));
+              return; // neplánuj další poll
+            }
+            this.onError(new Error(`Telegram getUpdates: ${errMsg}`));
           }
         } catch (e) {
           this.onError(e instanceof Error ? e : new Error(String(e)));

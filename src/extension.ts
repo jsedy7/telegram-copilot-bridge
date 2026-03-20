@@ -110,6 +110,83 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // Registrace chatového participanta @tg
   registerChatParticipant(context, log);
 
+  // ---------------------------------------------------------------------------
+  // LM tool: telegram_reply
+  //
+  // Copilot agent mode (a jakýkoli jiný VS Code agent) může volat #telegram_reply
+  // pro odeslání zprávy zpět Telegram uživateli, který aktuální úkol zadal.
+  //
+  // Použití v chatu:
+  //   Přidej do zprávy nebo system promptu instrukci jako:
+  //   "Až dokončíš práci, zavolej telegram_reply s výsledkem."
+  //
+  // Formát vstupu: { "message": "text zprávy (podporuje Telegram Markdown)" }
+  //
+  // Telegram Markdown:
+  //   *tučně*  _kurzíva_  `inline kód`  ```\nblokkódu\n```
+  // ---------------------------------------------------------------------------
+  const telegramReplyTool = vscode.lm.registerTool<{ message: string }>(
+    'telegram_reply',
+    {
+      prepareInvocation(options) {
+        const preview = (options.input?.message ?? '').substring(0, 100);
+        return {
+          invocationMessage: `📱 Telegram Bridge: odesílám zprávu… "${preview}${preview.length >= 100 ? '…' : ''}"`,
+        };
+      },
+
+      async invoke(options, _token) {
+        const message = options.input?.message;
+
+        if (!message) {
+          return new vscode.LanguageModelToolResult([
+            new vscode.LanguageModelTextPart('Error: parametr "message" je povinný.'),
+          ]);
+        }
+        if (!lastSenderChatId) {
+          return new vscode.LanguageModelToolResult([
+            new vscode.LanguageModelTextPart(
+              'Error: Žádný Telegram příjemce. Bridge zatím nepřijal žádnou zprávu — ' +
+              'nejdřív pošli zprávu ze svého Telegramu.',
+            ),
+          ]);
+        }
+        if (!poller) {
+          return new vscode.LanguageModelToolResult([
+            new vscode.LanguageModelTextPart(
+              'Error: Telegram Bridge není spuštěn. Spusť ho příkazem "Telegram Bridge: Spustit bridge".',
+            ),
+          ]);
+        }
+
+        // Telegram API limit: max 4096 znaků na zprávu
+        const chunks: string[] = [];
+        for (let i = 0; i < message.length; i += 4_096) {
+          chunks.push(message.substring(i, i + 4_096));
+        }
+
+        try {
+          for (const chunk of chunks) {
+            await poller.sendMessage(lastSenderChatId, chunk);
+          }
+          const summary = `✅ Odesláno do Telegramu (${chunks.length} zpráv${chunks.length > 1 ? '' : 'a'}, ${message.length} znaků).`;
+          logInfo(`[tool:telegram_reply] ${summary} chatId=${lastSenderChatId}`);
+          vscode.window.showInformationMessage(`📱 ${summary}`);
+          return new vscode.LanguageModelToolResult([
+            new vscode.LanguageModelTextPart(summary),
+          ]);
+        } catch (err) {
+          logError('[tool:telegram_reply] Chyba odeslání', err);
+          const detail = err instanceof Error ? err.message : String(err);
+          return new vscode.LanguageModelToolResult([
+            new vscode.LanguageModelTextPart(`Error: Odeslání do Telegramu selhalo: ${detail}`),
+          ]);
+        }
+      },
+    },
+  );
+  context.subscriptions.push(telegramReplyTool);
+
   // Příkazy
   context.subscriptions.push(
     vscode.commands.registerCommand('telegram-bridge.configure', () => runSetupWizard(context)),

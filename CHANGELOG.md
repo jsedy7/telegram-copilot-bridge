@@ -6,6 +6,28 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.1.4] - 2026-03-20
+
+### Added
+
+- **`telegram_reply` LM tool** — registered via `vscode.lm.registerTool` and declared in `package.json` under `languageModelTools`. Any VS Code agent (Copilot in agent mode, `@tg` participant, custom agents) can now call `#telegram_reply` to send a message back to the Telegram user.
+  - Input: `{ "message": "text" }` — Telegram Markdown supported (`*bold*`, `_italic_`, `` `code` ``, ` ```block``` `)
+  - Long messages are automatically split into ≤ 4 096-character chunks (Telegram API limit)
+  - Shows `invocationMessage` in the chat panel while sending (no confirmation prompt required — fully non-blocking for the gauč workflow)
+  - Shows a VS Code notification after successful send
+  - Tool reads `lastSenderChatId` from the most recent incoming Telegram message; returns an error if no message was received yet or if the bridge is not running
+
+**How to use in inject / direct mode (hybrid workflow):**
+
+Add to your Telegram message or to a prompt file (e.g. AGENTS.md):
+```
+When you have finished the task, call the telegram_reply tool and summarise what was done.
+```
+
+Copilot will complete the work and then call `telegram_reply` automatically. You stay on the couch.
+
+---
+
 ## [0.1.3] - 2026-03-20
 
 ### Fixed

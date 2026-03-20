@@ -2,7 +2,7 @@
   "name": "telegram-bridge",
   "displayName": "Telegram Bridge for Copilot Chat",
   "description": "Bridge between Telegram and VS Code Copilot / AI Chat. Send messages from Telegram directly into the VS Code chat window.",
-  "version": "0.1.3",
+  "version": "0.1.4",
   "publisher": "local-dev",
   "license": "MIT",
   "repository": {
@@ -166,7 +166,25 @@
           "group": "navigation@4"
         }
       ]
-    }
+    },
+    "languageModelTools": [
+      {
+        "name": "telegram_reply",
+        "tags": ["telegram", "notification", "bridge", "mobile"],
+        "displayName": "Send Telegram reply",
+        "modelDescription": "Sends a text message to the Telegram user who last sent a request through the Telegram Bridge extension. Call this tool when you have completed a task that was requested via Telegram, to notify the user on their mobile phone. The user may be away from the computer (e.g. on a couch) and is waiting for a result summary. The message supports Telegram Markdown formatting: *bold*, _italic_, `inline code`, ```multiline code block```. Keep the message informative but concise: summarise what was done, which files were changed, and any important results or warnings.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "message": {
+              "type": "string",
+              "description": "The message text to send to Telegram. Supported Telegram Markdown: *bold*, _italic_, `code`, ```lang\nblock\n```. Summarise the completed work and its outcome."
+            }
+          },
+          "required": ["message"]
+        }
+      }
+    ]
   },
   "scripts": {
     "compile": "webpack --mode development",

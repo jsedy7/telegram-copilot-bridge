@@ -23,6 +23,10 @@
  */
 
 import * as vscode from 'vscode';
+import * as http from 'http';
+import * as fs from 'fs';
+import * as fspath from 'path';
+import * as os from 'os';
 import { TelegramPoller } from './telegramPoller';
 import { registerChatParticipant, setPendingTelegramReply } from './chatParticipant';
 import { StatusViewProvider } from './statusView';
@@ -42,6 +46,13 @@ let lastSenderChatId: string | undefined;
 let lastSenderName: string | undefined;
 /** Verze extension z package.json – nastavena při aktivaci */
 let extensionVersion = '0.0.0';
+
+// MCP / HTTP bridge
+let httpServer: http.Server | undefined;
+/** Adresář sdílených souborů bridge (~/.vscode-telegram-bridge/) */
+const BRIDGE_DIR = fspath.join(os.homedir(), '.vscode-telegram-bridge');
+/** Soubor s portem HTTP serveru (čte ho mcp-server.js) */
+const PORT_FILE  = fspath.join(BRIDGE_DIR, 'port');
 
 const SECRET_KEY = 'telegramBridge.botToken';
 /** Klíč v globalState – uchovává ID aktivního workspace napříč okny */
@@ -71,6 +82,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   log = vscode.window.createOutputChannel('Telegram Bridge', { log: true });
   context.subscriptions.push(log);
   logInfo(`[init] Telegram Bridge v${extensionVersion} activating...`);
+
+  // Zkopíruj MCP server do stabilní cesty a zaregistruj do settings.json jednou
+  copyMcpServer(context);
+  await ensureMcpRegistered(context);
 
   // Status bar tlačítko
   statusBar = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
@@ -219,6 +234,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 }
 
 export function deactivate(): void {
+  stopHttpServer();
   poller?.stop();
   poller = undefined;
 }
@@ -419,6 +435,7 @@ async function startBridge(context: vscode.ExtensionContext): Promise<void> {
   );
 
   poller.start();
+  await startHttpServer(); // spustí HTTP server pro MCP komunikaci
   const isActive = isActiveWorkspace(context);
   setStatusBar(true, isActive);
   statusViewProvider?.update({
@@ -454,6 +471,7 @@ function stopBridge(): void {
   }
   poller.stop();
   poller = undefined;
+  stopHttpServer();
   setStatusBar(false, false);
   statusViewProvider?.update({ running: false, isActive: false, botName: undefined, lastMessage: undefined });
   logInfo('[bridge] Zastaven.');
@@ -715,6 +733,162 @@ async function fallbackToClipboard(text: string): Promise<void> {
 
 function config(): vscode.WorkspaceConfiguration {
   return vscode.workspace.getConfiguration('telegramBridge');
+}
+
+// ---------------------------------------------------------------------------
+// HTTP server pro MCP komunikaci
+//
+// mcp-server.js volá POST http://127.0.0.1:{port}/send s { message: string }.
+// Extension přepošle zprávu do Telegramu, zaznamená výsledek a vrátí JSON.
+// Server naslouchá pouze na loopback – žádný síťový přístup zvenčí.
+// ---------------------------------------------------------------------------
+
+async function startHttpServer(): Promise<void> {
+  if (httpServer) return; // již běží
+
+  httpServer = http.createServer((req, res) => {
+    if (req.method !== 'POST' || req.url !== '/send') {
+      res.writeHead(404); res.end(); return;
+    }
+    let body = '';
+    req.on('data', (d: Buffer) => { body += d.toString(); });
+    req.on('end', async () => {
+      try {
+        const parsed = JSON.parse(body) as { message?: unknown };
+        if (typeof parsed.message !== 'string' || !parsed.message) {
+          res.writeHead(400); res.end(JSON.stringify({ error: 'message field (string) required' })); return;
+        }
+        if (!lastSenderChatId || !poller) {
+          res.writeHead(503);
+          res.end(JSON.stringify({ error: 'No Telegram sender yet, or bridge is not running.' }));
+          return;
+        }
+        const msg = parsed.message;
+        const chunks: string[] = [];
+        for (let i = 0; i < msg.length; i += 4_096) chunks.push(msg.slice(i, i + 4_096));
+        for (const chunk of chunks) await poller.sendMessage(lastSenderChatId, chunk);
+
+        const n = chunks.length;
+        const summary =
+          `✅ Odesláno do Telegramu (${msg.length} znaků, ${n} zpráv${n > 1 ? '' : 'a'}) ` +
+          `[Telegram Bridge v${extensionVersion}]`;
+        logInfo(`[http/mcp] ${summary} → chatId=${lastSenderChatId}`);
+        vscode.window.showInformationMessage(`📱 ${summary}`);
+        res.writeHead(200); res.end(JSON.stringify({ summary }));
+      } catch (err) {
+        logError('[http/mcp] Chyba odeslání', err);
+        const detail = err instanceof Error ? err.message : String(err);
+        res.writeHead(500); res.end(JSON.stringify({ error: detail }));
+      }
+    });
+  });
+
+  await new Promise<void>((resolve, reject) => {
+    httpServer!.listen(0, '127.0.0.1', () => resolve());
+    httpServer!.on('error', reject);
+  });
+
+  const port = (httpServer.address() as { port: number }).port;
+  try {
+    fs.mkdirSync(BRIDGE_DIR, { recursive: true });
+    fs.writeFileSync(PORT_FILE, String(port), 'utf8');
+  } catch (err) {
+    logError('[http/mcp] Nepodařilo se zapsat port file', err);
+  }
+  logInfo(`[http/mcp] HTTP server naslouchá na 127.0.0.1:${port}`);
+}
+
+function stopHttpServer(): void {
+  if (!httpServer) return;
+  httpServer.close();
+  httpServer = undefined;
+  try { fs.unlinkSync(PORT_FILE); } catch { /* soubor neexistoval, ok */ }
+  logInfo('[http/mcp] HTTP server zastaven.');
+}
+
+// ---------------------------------------------------------------------------
+// Kopírování MCP serveru do stabilní cesty
+//
+// mcp-server.js se kopíruje do ~/.vscode-telegram-bridge/mcp-server.js
+// při každé aktivaci extension (aby se aktualizoval při upgrade).
+// Tato cesta je stabilní – nezávisí na verzi extension.
+// ---------------------------------------------------------------------------
+
+function copyMcpServer(context: vscode.ExtensionContext): void {
+  try {
+    const src  = fspath.join(context.extensionPath, 'resources', 'mcp-server.js');
+    const dest = fspath.join(BRIDGE_DIR, 'mcp-server.js');
+    fs.mkdirSync(BRIDGE_DIR, { recursive: true });
+    fs.copyFileSync(src, dest);
+    logInfo(`[mcp] MCP server zkopírován → ${dest}`);
+  } catch (err) {
+    logError('[mcp] Nepodařilo se zkopírovat MCP server', err);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Registrace MCP serveru do VS Code settings.json
+//
+// Provede se jednou (globalState flag). Přidá záznam do mcp.servers tak,
+// aby Copilot automaticky spustil mcp-server.js při startu VS Code.
+// ---------------------------------------------------------------------------
+
+async function ensureMcpRegistered(context: vscode.ExtensionContext): Promise<void> {
+  const mcpServerPath = fspath.join(BRIDGE_DIR, 'mcp-server.js');
+
+  // Zkontroluj jestli je již registrováno
+  const mcpCfg = vscode.workspace.getConfiguration('mcp');
+  const existingServers = mcpCfg.get<Record<string, unknown>>('servers') ?? {};
+  if ('telegram-bridge' in existingServers) {
+    logInfo('[mcp] MCP server již registrován v settings.json.');
+    return;
+  }
+
+  const nodeBin = findNodeBinary();
+  const newServers = {
+    ...existingServers,
+    'telegram-bridge': {
+      type: 'stdio',
+      command: nodeBin,
+      args: [mcpServerPath],
+    },
+  };
+
+  try {
+    await mcpCfg.update('servers', newServers, vscode.ConfigurationTarget.Global);
+    logInfo(`[mcp] MCP server zaregistrován v settings.json (node: ${nodeBin}).`);
+  } catch (err) {
+    logError('[mcp] Nepovedlo se zapsat do settings.json', err);
+    void vscode.window.showWarningMessage(
+      '📱 Telegram Bridge: Nepodařilo se automaticky zaregistrovat MCP server. ' +
+      'Přidej ho ručně – viz README → Releases.',
+    );
+    return;
+  }
+
+  const action = await vscode.window.showInformationMessage(
+    '📱 Telegram Bridge: MCP server zaregistrován! ' +
+    'Pro aktivaci #telegram_reply toolu restartuj VS Code.',
+    'Restartovat nyní',
+    'Později',
+  );
+  if (action === 'Restartovat nyní') {
+    await vscode.commands.executeCommand('workbench.action.reloadWindow');
+  }
+}
+
+/** Najde spustitelný node binary. Vrátí absolutní cestu nebo 'node' jako fallback. */
+function findNodeBinary(): string {
+  const candidates = [
+    '/opt/homebrew/bin/node',       // macOS Homebrew (Apple Silicon)
+    '/usr/local/bin/node',          // macOS Homebrew (Intel) / nvm default
+    `${os.homedir()}/.nvm/versions/node/$(node --version 2>/dev/null)/bin/node`,
+    '/usr/bin/node',                // Linux system
+  ];
+  for (const p of candidates) {
+    try { fs.accessSync(p, fs.constants.X_OK); return p; } catch { /* zkus další */ }
+  }
+  return 'node'; // fallback – spoléháme na PATH
 }
 
 /**

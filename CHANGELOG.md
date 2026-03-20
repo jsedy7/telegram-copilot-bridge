@@ -6,6 +6,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.1.5] - 2026-03-20
+
+### Added
+
+- **Local MCP server** (`resources/mcp-server.js`) — a self-contained zero-dependency Node.js stdio server implementing the Model Context Protocol. Exposes `telegram_reply` as a proper MCP tool that Copilot agent mode discovers natively (no `#` hashtag workarounds needed).
+- **HTTP bridge** (`127.0.0.1:{random-port}/send`) — the VS Code extension starts a local HTTP server when the bridge is running. The MCP server POSTs to it. Listens on loopback only; no external exposure.
+- **Auto-registration** — on first activation the extension copies `mcp-server.js` to `~/.vscode-telegram-bridge/mcp-server.js` (stable path, survives extension updates) and adds the server to `mcp.servers` in global `settings.json`. A "Restart now" notification appears; after reload, `telegram_reply` is available in Copilot as a real MCP tool.
+- **Node.js binary detection** — tries common macOS/Linux paths (`/opt/homebrew/bin/node`, `/usr/local/bin/node`, `/usr/bin/node`) before falling back to `node` in PATH.
+
+### Changed
+
+- `stopBridge()` and `deactivate()` now also stop the HTTP server and clean up the port file so the MCP server returns a clear "bridge not running" error instead of a connection refused.
+
+---
+
 ## [0.1.4] - 2026-03-20
 
 ### Added

@@ -2,7 +2,7 @@
   "name": "telegram-bridge",
   "displayName": "Telegram Bridge for Copilot Chat",
   "description": "Bridge between Telegram and VS Code Copilot / AI Chat. Send messages from Telegram directly into the VS Code chat window.",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "publisher": "local-dev",
   "license": "MIT",
   "repository": {
@@ -79,13 +79,26 @@
         },
         "telegramBridge.chatMode": {
           "type": "string",
-          "enum": ["direct", "participant"],
+          "enum": ["inject", "direct", "participant"],
           "enumDescriptions": [
-            "Direktní režim: zpráva jde přímo do Copilot chatu (jednosměrný tok)",
-            "Účastník @tg: zpráva jde přes @tg, odpověď se odešle zpět do Telegramu (obousměrný)"
+            "Inject (recommended): message is placed into the existing chat input box. Auto-submitted after a short delay (see autoSubmit / submitDelay). Full conversation context preserved.",
+            "Direct: message is auto-submitted immediately to the current Copilot Chat thread.",
+            "Participant (@tg): two-way mode — message goes through the @tg participant, Copilot responds and the reply is sent back to Telegram. Has its own isolated context."
           ],
-          "default": "direct",
-          "description": "Režim přenosu zpráv"
+          "default": "inject",
+          "description": "How Telegram messages are delivered into VS Code Chat."
+        },
+        "telegramBridge.autoSubmit": {
+          "type": "boolean",
+          "default": true,
+          "description": "In inject mode: automatically submit the message after a short delay. When false, the text appears in the input box and you press Enter manually."
+        },
+        "telegramBridge.submitDelay": {
+          "type": "number",
+          "default": 1500,
+          "minimum": 300,
+          "maximum": 10000,
+          "description": "In inject mode with autoSubmit enabled: milliseconds to wait before submitting. Gives you time to see and optionally cancel the message (Escape). Default: 1500 ms."
         },
         "telegramBridge.prefixMessage": {
           "type": "boolean",

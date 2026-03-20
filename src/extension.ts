@@ -46,13 +46,28 @@ const SECRET_KEY = 'telegramBridge.botToken';
 const ACTIVE_WORKSPACE_KEY = 'telegramBridge.activeWorkspaceId';
 
 // ---------------------------------------------------------------------------
-// Aktivace
+// Logging helpers
 // ---------------------------------------------------------------------------
+
+/** HH:MM:SS.mmm timestamp */
+function ts(): string {
+  return new Date().toISOString().substring(11, 23);
+}
+
+function logInfo(msg: string): void {
+  log.appendLine(`[${ts()}] ${msg}`);
+}
+
+function logError(msg: string, err?: unknown): void {
+  const detail = err instanceof Error ? err.message : err ? String(err) : '';
+  log.appendLine(`[${ts()}] ⚠ ${msg}${detail ? ': ' + detail : ''}`);
+}
+
 
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
   log = vscode.window.createOutputChannel('Telegram Bridge', { log: true });
   context.subscriptions.push(log);
-  log.appendLine('Telegram Bridge se aktivuje...');
+  logInfo('[init] Telegram Bridge activating...');
 
   // Status bar tlačítko
   statusBar = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
@@ -119,7 +134,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     }
     await startBridge(context);
   } else {
-    log.appendLine('autoStart=false – bridge není spuštěn. Použij příkaz "Telegram Bridge: Spustit bridge".');
+    logInfo('[init] autoStart=false – bridge není spuštěn. Použij příkaz "Telegram Bridge: Spustit bridge".');
   }
 }
 
@@ -151,7 +166,7 @@ async function setAsActive(context: vscode.ExtensionContext): Promise<void> {
   await context.globalState.update(ACTIVE_WORKSPACE_KEY, myId);
   setStatusBar(!!poller, true);
   statusViewProvider?.update({ isActive: true, workspaceName: myName });
-  log.appendLine(`[routing] Nastaven jako aktivní příjemce: "${myName}"`);
+  logInfo(`[routing] Nastaven jako aktivní příjemce: "${myName}"`);
   vscode.window.showInformationMessage(
     `📍 Telegram zprávy nyní směřují do: **${myName}**`,
   );
@@ -185,14 +200,14 @@ async function runSetupWizard(context: vscode.ExtensionContext): Promise<void> {
   }
 
   await context.secrets.store(SECRET_KEY, token);
-  log.appendLine('[setup] Bot token uložen do VS Code Secrets.');
+  logInfo('[setup] Bot token uložen do VS Code Secrets.');
 
   // Krok 2: Ověření tokenu
   vscode.window.showInformationMessage('⏳ Ověřuji token u Telegram API...');
   try {
     const tempPoller = new TelegramPoller(token, new Set(), () => {}, () => {});
     const me = await tempPoller.getMe();
-    log.appendLine(`[setup] Bot ověřen: @${me.username ?? me.first_name} (id=${me.id})`);
+    logInfo(`[setup] Bot ověřen: @${me.username ?? me.first_name} (id=${me.id})`);
     vscode.window.showInformationMessage(
       `✅ Připojen bot: @${me.username ?? me.first_name}\n` +
         `Pošli botovi /chatid ze svého Telegramu pro zjištění svého Chat ID.`,
@@ -228,7 +243,7 @@ async function runSetupWizard(context: vscode.ExtensionContext): Promise<void> {
   if (!existing.includes(chatIdInput)) {
     await cfg.update('allowedChatIds', [...existing, chatIdInput], vscode.ConfigurationTarget.Global);
   }
-  log.appendLine(`[setup] Chat ID ${chatIdInput} přidáno do allowedChatIds.`);
+  logInfo(`[setup] Chat ID ${chatIdInput} přidáno do allowedChatIds.`);
 
   const start = await vscode.window.showInformationMessage(
     `✅ Nastavení dokončeno!\nChat ID: ${chatIdInput} přidáno.\n\nSpustit bridge nyní?`,
@@ -293,7 +308,7 @@ async function startBridge(context: vscode.ExtensionContext): Promise<void> {
   if (!activeId) {
     // Žádné okno ještě není aktivní → toto se stane primárním
     await context.globalState.update(ACTIVE_WORKSPACE_KEY, myId);
-    log.appendLine(`[bridge] Nastaven jako primární příjemce: "${myName}"`);
+    logInfo(`[bridge] Nastaven jako primární příjemce: "${myName}"`);
   } else if (activeId !== myId) {
     const action = await vscode.window.showWarningMessage(
       `⚠️ Telegram Bridge již běží v jiném okně.\n` +
@@ -304,7 +319,7 @@ async function startBridge(context: vscode.ExtensionContext): Promise<void> {
     );
     if (action === 'Přesměrovat sem') {
       await context.globalState.update(ACTIVE_WORKSPACE_KEY, myId);
-      log.appendLine(`[bridge] Přesměrován jako aktivní příjemce: "${myName}"`);
+      logInfo(`[bridge] Přesměrován jako aktivní příjemce: "${myName}"`);
     } else if (!action) {
       return; // Uživatel zrušil
     }
@@ -312,14 +327,14 @@ async function startBridge(context: vscode.ExtensionContext): Promise<void> {
     // se toto okno stane aktivním (viz handleTelegramMessage guard)
   }
 
-  log.appendLine(`[bridge] Spouštím – povolená Chat ID: ${[...allowedSet].join(', ')}`);
+  logInfo(`[bridge] Spouštím – povolená Chat ID: ${[...allowedSet].join(', ')}`);
 
   poller = new TelegramPoller(
     token,
     allowedSet,
     (msg) => handleTelegramMessage(msg, context, cfg),
     (err) => {
-      log.appendLine(`[bridge] Chyba: ${err.message}`);
+      logInfo(`[bridge] Chyba: ${err.message}`);
     },
   );
 
@@ -337,7 +352,7 @@ async function startBridge(context: vscode.ExtensionContext): Promise<void> {
   try {
     const me = await poller.getMe();
     const botName = me.username ? `@${me.username}` : me.first_name;
-    log.appendLine(`[bridge] Připojen: ${botName}`);
+    logInfo(`[bridge] Připojen: ${botName}`);
     statusViewProvider?.update({ botName });
     const activeLabel = isActive ? '📍 aktivní příjemce' : '⏸ pasivní (zprávy jdou jinam)';
     vscode.window.showInformationMessage(
@@ -361,7 +376,7 @@ function stopBridge(): void {
   poller = undefined;
   setStatusBar(false, false);
   statusViewProvider?.update({ running: false, isActive: false, botName: undefined, lastMessage: undefined });
-  log.appendLine('[bridge] Zastaven.');
+  logInfo('[bridge] Zastaven.');
   vscode.window.showInformationMessage('📴 Telegram Bridge zastaven.');
 }
 
@@ -385,11 +400,11 @@ async function handleTelegramMessage(
 
   // Guard: zpracovávej zprávy pouze pokud je toto okno aktivním příjemcem
   if (!isActiveWorkspace(context)) {
-    log.appendLine(`[msg] Ignoruji – toto okno není aktivní příjemce. ("${vscode.workspace.name ?? 'workspace'}")`);
+    logInfo(`[msg] Ignoruji – toto okno není aktivní příjemce. ("${vscode.workspace.name ?? 'workspace'}")`);
     return;
   }
 
-  log.appendLine(`[msg] ${senderName} (${chatId}): ${text.substring(0, 120)}`);
+  logInfo(`[msg] ${senderName} (${chatId}): ${text.substring(0, 120)}`);
 
   // Zapamatuj si posledního odesilatele pro replyDone
   lastSenderChatId = chatId;
@@ -417,7 +432,7 @@ async function handleTelegramMessage(
     return;
   }
 
-  const mode = cfg.get<string>('chatMode') ?? 'direct';
+  const mode = cfg.get<string>('chatMode') ?? 'inject';
   const prefix = cfg.get<boolean>('prefixMessage') ?? true;
   const wsContext = cfg.get<string>('workspaceContext') ?? 'workspace';
 
@@ -435,6 +450,7 @@ async function handleTelegramMessage(
 
   if (mode === 'participant') {
     // Participant mód: "@tg <zpráva>" → @tg zpracuje + odešle odpověď zpátky
+    // NOTE: @tg has its own isolated context – use inject/direct for ongoing conversations.
     // Workspace context is handled inside chatParticipant.ts by forwarding to @workspace.
     if (!poller) return;
     setPendingTelegramReply(chatId, poller);
@@ -444,9 +460,58 @@ async function handleTelegramMessage(
         isPartialQuery: false,
       });
     } catch (err) {
-      log.appendLine(`[msg] Chyba otevření chatu: ${err}`);
+      logInfo(`[msg] Chyba otevření chatu: ${err}`);
       await fallbackToClipboard(displayText);
     }
+  } else if (mode === 'inject') {
+    // Inject mód (výchozí): vloží text do input boxu stávajícího chatu.
+    // autoSubmit=true (výchozí): po submitDelay ms se odešle automaticky.
+    // autoSubmit=false: uživatel stiskne Enter ručně.
+    const autoSubmit = cfg.get<boolean>('autoSubmit') ?? true;
+    const submitDelay = Math.max(300, cfg.get<number>('submitDelay') ?? 1500);
+
+    const contextPrefix =
+      wsContext === 'workspace' ? '@workspace '
+      : wsContext === 'agent'   ? '@workspace /new '
+      : '';
+
+    const query = contextPrefix + displayText;
+    logInfo(`[msg] Inject mode (autoSubmit=${autoSubmit}, delay=${submitDelay}ms, wsContext=${wsContext})`);
+
+    try {
+      // Fáze 1: zobraz text v input boxu bez odeslání
+      await vscode.commands.executeCommand('workbench.action.chat.open', {
+        query,
+        isPartialQuery: true,
+      });
+    } catch (err) {
+      logInfo(`[msg] Chyba inject módu (fáze 1): ${err}`);
+      await fallbackToClipboard(displayText);
+      return;
+    }
+
+    if (!autoSubmit) {
+      logInfo('[msg] autoSubmit=false – čekám na Enter od uživatele');
+      return;
+    }
+
+    // Fáze 2: po submitDelay odešli do stávajícího chat threadu.
+    // Uživatel vidí po dobu delay co se chystá odeslat – Escape = zruší fókus a zastaví to.
+    await new Promise<void>((resolve) => {
+      const timer = setTimeout(async () => {
+        try {
+          await vscode.commands.executeCommand('workbench.action.chat.open', {
+            query,
+            isPartialQuery: false,
+          });
+          logInfo('[msg] Inject: zpráva automaticky odeslána do chatu');
+        } catch (err) {
+          logInfo(`[msg] Chyba inject módu (fáze 2 – submit): ${err}`);
+        }
+        resolve();
+      }, submitDelay);
+      context.subscriptions.push({ dispose: () => { clearTimeout(timer); resolve(); } });
+    });
   } else {
     // Direct mód: sestavíme query s volitelným workspace kontextem
     //
@@ -459,7 +524,7 @@ async function handleTelegramMessage(
       : '';
 
     const query = contextPrefix + displayText;
-    log.appendLine(`[msg] Direct mode, wsContext=${wsContext}, query prefix: "${contextPrefix.trim() || '(none)'}"`);
+    logInfo(`[msg] Direct mode, wsContext=${wsContext}, query prefix: "${contextPrefix.trim() || '(none)'}"`);
 
     try {
       await vscode.commands.executeCommand('workbench.action.chat.open', {
@@ -467,7 +532,7 @@ async function handleTelegramMessage(
         isPartialQuery: false,
       });
     } catch (err) {
-      log.appendLine(`[msg] Chyba otevření chatu (direct): ${err}`);
+      logInfo(`[msg] Chyba otevření chatu (direct): ${err}`);
       await fallbackToClipboard(displayText);
     }
   }
@@ -480,40 +545,68 @@ async function handleTelegramMessage(
 /** Odešle "✅ Hotovo!" zpět poslednímu odesilateli */
 async function replyDone(): Promise<void> {
   if (!lastSenderChatId || !poller) {
-    vscode.window.showWarningMessage('Telegram Bridge: Žádná předchozí zpráva k odpovězení.');
+    vscode.window.showWarningMessage('Telegram Bridge: No previous message to reply to.');
     return;
   }
   const workspaceName = vscode.workspace.name ?? 'VS Code';
-  const msg = `✅ *Hotovo!*\n_Projekt: ${workspaceName}_`;
-  try {
-    await poller.sendMessage(lastSenderChatId, msg);
-    log.appendLine(`[reply] Odesláno "Hotovo" do ${lastSenderChatId}`);
-    vscode.window.showInformationMessage(`✅ Odesláno do Telegramu (${lastSenderName ?? lastSenderChatId})`);
-  } catch (err) {
-    vscode.window.showErrorMessage(`Chyba odesílání do Telegramu: ${err}`);
-  }
+  const msg = `✅ *Done!*\n_Project: ${workspaceName}_`;
+  await sendReplyWithRetry(lastSenderChatId, msg, '✅ Sent to Telegram');
 }
 
 /** Odešle vlastní zprávu zpět poslednímu odesilateli */
 async function replyCustom(): Promise<void> {
   if (!lastSenderChatId || !poller) {
-    vscode.window.showWarningMessage('Telegram Bridge: Žádná předchozí zpráva k odpovězení.');
+    vscode.window.showWarningMessage('Telegram Bridge: No previous message to reply to.');
     return;
   }
   const workspaceName = vscode.workspace.name ?? 'VS Code';
   const input = await vscode.window.showInputBox({
-    title: `📤 Odpověď do Telegramu → ${lastSenderName ?? lastSenderChatId}`,
-    prompt: 'Text odpovědi (Markdown podporován)',
-    placeHolder: `Projekt ${workspaceName}: vygenerování dokončeno, soubor uložen.`,
+    title: `📤 Reply to Telegram → ${lastSenderName ?? lastSenderChatId}`,
+    prompt: 'Message text (Markdown supported)',
+    placeHolder: `Project ${workspaceName}: generation complete, file saved.`,
     ignoreFocusOut: true,
   });
   if (!input) return;
-  try {
-    await poller.sendMessage(lastSenderChatId, input);
-    log.appendLine(`[reply] Vlastní odpověď odeslána do ${lastSenderChatId}`);
-    vscode.window.showInformationMessage(`📤 Odesláno do Telegramu`);
-  } catch (err) {
-    vscode.window.showErrorMessage(`Chyba odesílání: ${err}`);
+  await sendReplyWithRetry(lastSenderChatId, input, '📤 Sent to Telegram');
+}
+
+/**
+ * Sends a Telegram message with automatic error notification + Retry button.
+ * Used by replyDone, replyCustom, and any other place that needs a reliable send.
+ */
+async function sendReplyWithRetry(chatId: string, text: string, successMsg: string): Promise<void> {
+  if (!poller) {
+    vscode.window.showWarningMessage('Telegram Bridge: Bridge is not running.');
+    return;
+  }
+
+  const trySend = async (): Promise<boolean> => {
+    try {
+      await poller!.sendMessage(chatId, text);
+      logInfo(`[reply] Sent to chatId=${chatId} (${text.length} chars)`);
+      vscode.window.showInformationMessage(successMsg);
+      return true;
+    } catch (err) {
+      logError(`[reply] Failed to send to chatId=${chatId}`, err);
+      return false;
+    }
+  };
+
+  if (await trySend()) return;
+
+  // Failed — show error with Retry + View Log
+  const action = await vscode.window.showErrorMessage(
+    `📱 Telegram Bridge: Failed to send message to Telegram.`,
+    'Retry',
+    'View Log',
+  );
+  if (action === 'Retry') {
+    if (!await trySend()) {
+      vscode.window.showErrorMessage('📱 Telegram Bridge: Retry also failed. See log for details.');
+      log.show();
+    }
+  } else if (action === 'View Log') {
+    log.show();
   }
 }
 

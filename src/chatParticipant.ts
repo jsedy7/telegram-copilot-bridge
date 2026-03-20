@@ -75,6 +75,33 @@ export function registerChatParticipant(
 
       // Sestav historii konverzace pro kontext
       const messages: vscode.LanguageModelChatMessage[] = buildHistory(chatContext);
+
+      // Inject workspace context into the system prompt so the model knows
+      // about the project even though we can't pass live tools here.
+      // The @workspace participant approach (forwarding) is handled in direct mode;
+      // here we give the model a rich system prompt with project facts it can use.
+      const workspaceName = vscode.workspace.name ?? 'unknown workspace';
+      const workspaceFolders = vscode.workspace.workspaceFolders
+        ?.map((f) => f.uri.fsPath)
+        .join(', ') ?? 'unknown';
+      const openEditors = vscode.window.tabGroups.all
+        .flatMap((g) => g.tabs)
+        .map((t) => (t.input as { uri?: vscode.Uri })?.uri?.fsPath)
+        .filter((p): p is string => !!p)
+        .slice(0, 10)
+        .join('\n  ');
+
+      const systemPrompt =
+        `You are an AI coding assistant integrated with VS Code via Telegram Bridge.\n` +
+        `Current workspace: "${workspaceName}"\n` +
+        `Workspace root(s): ${workspaceFolders}\n` +
+        (openEditors ? `Open files:\n  ${openEditors}\n` : '') +
+        `\nIMPORTANT: You do NOT have direct file-system tool access in this mode. ` +
+        `If the user asks you to read a specific file, ask them to paste its content ` +
+        `into the chat, or suggest they switch to direct mode (telegramBridge.chatMode: "direct") ` +
+        `which routes messages through @workspace and gives Copilot full file access.`;
+
+      messages.unshift(vscode.LanguageModelChatMessage.Assistant(systemPrompt));
       messages.push(vscode.LanguageModelChatMessage.User(userMessage));
 
       // Volání LM

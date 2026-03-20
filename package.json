@@ -2,7 +2,7 @@
   "name": "telegram-bridge",
   "displayName": "Telegram Bridge for Copilot Chat",
   "description": "Bridge between Telegram and VS Code Copilot / AI Chat. Send messages from Telegram directly into the VS Code chat window.",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "publisher": "local-dev",
   "license": "MIT",
   "repository": {
@@ -90,7 +90,18 @@
         "telegramBridge.prefixMessage": {
           "type": "boolean",
           "default": true,
-          "description": "Přidat prefix '📱 [Telegram]:' před zprávu v chatu"
+          "description": "Add a '\ud83d\udcf1 Name:' prefix before the message in the chat input."
+        },
+        "telegramBridge.workspaceContext": {
+          "type": "string",
+          "enum": ["none", "workspace", "agent"],
+          "enumDescriptions": [
+            "No workspace context injected. Copilot answers from general knowledge only.",
+            "Prepend @workspace to every message. Copilot searches the codebase before answering. (Recommended)",
+            "Prepend /new (agent mode). Full agentic capabilities: file read/write, terminal, search."
+          ],
+          "default": "workspace",
+          "description": "Controls whether Copilot has access to your workspace files when answering messages from Telegram."
         }
       }
     },

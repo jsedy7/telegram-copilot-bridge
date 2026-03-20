@@ -419,6 +419,7 @@ async function handleTelegramMessage(
 
   const mode = cfg.get<string>('chatMode') ?? 'direct';
   const prefix = cfg.get<boolean>('prefixMessage') ?? true;
+  const wsContext = cfg.get<string>('workspaceContext') ?? 'workspace';
 
   const displayText = prefix ? `📱 ${senderName}: ${text}` : text;
 
@@ -434,6 +435,7 @@ async function handleTelegramMessage(
 
   if (mode === 'participant') {
     // Participant mód: "@tg <zpráva>" → @tg zpracuje + odešle odpověď zpátky
+    // Workspace context is handled inside chatParticipant.ts by forwarding to @workspace.
     if (!poller) return;
     setPendingTelegramReply(chatId, poller);
     try {
@@ -446,10 +448,22 @@ async function handleTelegramMessage(
       await fallbackToClipboard(displayText);
     }
   } else {
-    // Direct mód: zpráva jde přímo do Copilot chatu
+    // Direct mód: sestavíme query s volitelným workspace kontextem
+    //
+    // wsContext = 'workspace' → prepend "@workspace " → Copilot prohledá codebase
+    // wsContext = 'agent'     → prepend "@workspace /new " → agent mode (čte/píše soubory)
+    // wsContext = 'none'      → jen holý text (chování jako dřív)
+    const contextPrefix =
+      wsContext === 'workspace' ? '@workspace '
+      : wsContext === 'agent'   ? '@workspace /new '
+      : '';
+
+    const query = contextPrefix + displayText;
+    log.appendLine(`[msg] Direct mode, wsContext=${wsContext}, query prefix: "${contextPrefix.trim() || '(none)'}"`);
+
     try {
       await vscode.commands.executeCommand('workbench.action.chat.open', {
-        query: displayText,
+        query,
         isPartialQuery: false,
       });
     } catch (err) {

@@ -40,6 +40,8 @@ let statusViewProvider: StatusViewProvider | undefined;
 let lastSenderChatId: string | undefined;
 /** Jméno posledního odesilatele */
 let lastSenderName: string | undefined;
+/** Verze extension z package.json – nastavena při aktivaci */
+let extensionVersion = '0.0.0';
 
 const SECRET_KEY = 'telegramBridge.botToken';
 /** Klíč v globalState – uchovává ID aktivního workspace napříč okny */
@@ -65,9 +67,10 @@ function logError(msg: string, err?: unknown): void {
 
 
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
+  extensionVersion = context.extension.packageJSON.version ?? '0.0.0';
   log = vscode.window.createOutputChannel('Telegram Bridge', { log: true });
   context.subscriptions.push(log);
-  logInfo('[init] Telegram Bridge activating...');
+  logInfo(`[init] Telegram Bridge v${extensionVersion} activating...`);
 
   // Status bar tlačítko
   statusBar = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
@@ -169,7 +172,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           for (const chunk of chunks) {
             await poller.sendMessage(lastSenderChatId, chunk);
           }
-          const summary = `✅ Odesláno do Telegramu (${chunks.length} zpráv${chunks.length > 1 ? '' : 'a'}, ${message.length} znaků).`;
+          const summary = `✅ Odesláno do Telegramu (${chunks.length} zpráv${chunks.length > 1 ? '' : 'a'}, ${message.length} znaků). [Telegram Bridge v${extensionVersion}]`;
           logInfo(`[tool:telegram_reply] ${summary} chatId=${lastSenderChatId}`);
           vscode.window.showInformationMessage(`📱 ${summary}`);
           return new vscode.LanguageModelToolResult([
@@ -726,21 +729,21 @@ function setStatusBar(running: boolean, isActive = true): void {
   if (running && isActive) {
     statusBar.text = `$(broadcast) TG $(check)${shortName ? ' ' + shortName : ''}`;
     statusBar.tooltip =
-      `Telegram Bridge: AKTIVNÍ příjemce${wsName ? ' – "' + wsName + '"' : ''}\n` +
+      `Telegram Bridge v${extensionVersion}: AKTIVNÍ příjemce${wsName ? ' – "' + wsName + '"' : ''}\n` +
       'Zprávy z Telegramu jdou sem.\nKlikni pro zastavení.';
     statusBar.backgroundColor = new vscode.ThemeColor('statusBarItem.warningBackground');
     statusBar.color = undefined;
   } else if (running && !isActive) {
     statusBar.text = `$(broadcast) TG $(debug-pause)${shortName ? ' ' + shortName : ''}`;
     statusBar.tooltip =
-      `Telegram Bridge: běží, ale PASIVNÍ${wsName ? ' – "' + wsName + '"' : ''}\n` +
+      `Telegram Bridge v${extensionVersion}: běží, ale PASIVNÍ${wsName ? ' – "' + wsName + '"' : ''}\n` +
       'Zprávy jdou do jiného okna.\nKlikni pro zastavení. Příkaz "Nastavit jako aktivní" pro přesměrování sem.';
     statusBar.backgroundColor = undefined;
     statusBar.color = new vscode.ThemeColor('statusBarItem.foreground');
   } else {
     statusBar.text = `$(broadcast) TG${shortName ? ' ' + shortName : ''}`;
     statusBar.tooltip =
-      `Telegram Bridge: Neaktivní${wsName ? ' – "' + wsName + '"' : ''}\n` +
+      `Telegram Bridge v${extensionVersion}: Neaktivní${wsName ? ' – "' + wsName + '"' : ''}\n` +
       'Klikni pro spuštění.';
     statusBar.backgroundColor = undefined;
     statusBar.color = new vscode.ThemeColor('statusBarItem.foreground');

@@ -26,6 +26,8 @@ Send messages from **Telegram directly into VS Code Copilot / AI Chat**. The bri
 
 > **How replies work in inject/direct mode:** the `telegram_reply` MCP tool is registered automatically. When Copilot finishes a task, it can call the tool to send a summary back to Telegram. Add *"When done, call telegram_reply"* to your message or put the instruction in `AGENTS.md` once.
 
+By default, the extension now also prepends a short hidden-style text prefix for `inject` and `direct` messages saying that the task came from Telegram and that the agent should call `telegram_reply` when finished. This behavior is controlled by `telegramBridge.addTelegramReplyInstruction`.
+
 ---
 
 ## Installation
@@ -51,11 +53,13 @@ npm run package
 
 This produces `telegram-bridge-0.1.0.vsix` in the project root.
 
+The filename will match the current package version, e.g. `telegram-bridge-0.1.8.vsix`.
+
 ### Step 3 — Install into VS Code
 
 **Option A — Terminal:**
 ```bash
-code --install-extension telegram-bridge-0.1.0.vsix
+code --install-extension telegram-bridge-0.1.8.vsix
 ```
 
 **Option B — VS Code UI:**
@@ -142,7 +146,11 @@ Type **"Open User Settings JSON"** and select it. Add the following block:
   "telegramBridge.chatMode": "direct",
 
   // Prefix messages with "📱 Name:" in the chat input.
-  "telegramBridge.prefixMessage": true
+  "telegramBridge.prefixMessage": true,
+
+  // In inject/direct mode, prepend a short instruction that this task came
+  // from Telegram and should be answered via telegram_reply when finished.
+  "telegramBridge.addTelegramReplyInstruction": true
 }
 ```
 
@@ -332,6 +340,39 @@ which files changed, and any warnings or next steps.
 
 ---
 
+## Low-context repo workflow
+
+To keep Copilot's context window small and predictable, use these three files as the working surface:
+
+- `AGENTS.md` — permanent instructions for the agent
+- `TASKS.md` — backlog / in progress / done
+- `NOW_NEXT.md` — short operational summary of the current state
+
+Recommended pattern:
+
+1. Put stable behavior rules into `AGENTS.md`
+2. Keep only active work in `TASKS.md` with IDs like `TB-001`
+3. Keep `NOW_NEXT.md` under one screen of text
+4. Ask the agent to read only those files plus the files directly related to the selected task
+
+Example prompts:
+
+```text
+Open TASKS.md, pick TB-003, do only that task, update TASKS.md and NOW_NEXT.md when finished.
+```
+
+```text
+How many backlog tasks are in TASKS.md?
+```
+
+```text
+Read NOW_NEXT.md and TASKS.md first, then continue the current work without scanning the full repo.
+```
+
+This keeps a reserve in the context window and avoids wasting tokens on repository-wide re-discovery.
+
+---
+
 A typical day using the couch workflow:
 
 1. **Morning** — open your project in VS Code, start the bridge; it becomes the active receiver
@@ -371,12 +412,25 @@ A typical day using the couch workflow:
 
 ## Releases
 
-Pre-built `.vsix` files are attached to every [GitHub Release](https://github.com/jirisedy/telegram-bridge/releases).
-The release is created automatically by the CI workflow when a `v*` tag is pushed:
+Pre-built `.vsix` files are attached to every [GitHub Release](https://github.com/jsedy7/telegram-copilot-bridge/releases).
+
+CI now does two things automatically:
+
+- **CI build** on every push to `main`, every pull request, and manual run: compiles the extension, packages a `.vsix`, and uploads it as a workflow artifact
+- **Release pipeline** on `v*` tags: validates that the tag matches `package.json`, builds the `.vsix`, publishes a GitHub Release, and uses the matching `CHANGELOG.md` section as release notes
+
+The release notes also include links to:
+
+- the GitHub Release page
+- direct `.vsix` download
+- the full `CHANGELOG.md`
+- the compare diff from the previous tag (when one exists)
+
+To publish a new downloadable release:
 
 ```bash
-git tag v0.1.4
-git push origin v0.1.4
+git tag v0.1.8
+git push origin v0.1.8
 ```
 
 See [CHANGELOG.md](CHANGELOG.md) for a full history of changes.

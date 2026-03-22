@@ -423,7 +423,7 @@ async function startBridge(context: vscode.ExtensionContext): Promise<void> {
     // se toto okno stane aktivním (viz handleTelegramMessage guard)
   }
 
-  logInfo(`[bridge] Spouštím – povolená Chat ID: ${[...allowedSet].join(', ')}`);
+  logInfo(`[bridge] Spouštím Telegram Bridge v${extensionVersion} – povolená Chat ID: ${[...allowedSet].join(', ')}`);
 
   poller = new TelegramPoller(
     token,
@@ -547,8 +547,10 @@ async function handleTelegramMessage(
   const mode = cfg.get<string>('chatMode') ?? 'inject';
   const prefix = cfg.get<boolean>('prefixMessage') ?? true;
   const wsContext = cfg.get<string>('workspaceContext') ?? 'workspace';
+  const addTelegramReplyInstruction = cfg.get<boolean>('addTelegramReplyInstruction') ?? true;
 
   const displayText = prefix ? `📱 ${senderName}: ${text}` : text;
+  const instructedText = buildTelegramChatText(displayText, senderName, addTelegramReplyInstruction);
 
   // Upozornění v VS Code
   void vscode.window.showInformationMessage(
@@ -587,7 +589,7 @@ async function handleTelegramMessage(
       : wsContext === 'agent'   ? '@workspace /new '
       : '';
 
-    const query = contextPrefix + displayText;
+    const query = contextPrefix + instructedText;
     logInfo(`[msg] Inject mode (autoSubmit=${autoSubmit}, delay=${submitDelay}ms, wsContext=${wsContext})`);
 
     try {
@@ -598,7 +600,7 @@ async function handleTelegramMessage(
       });
     } catch (err) {
       logInfo(`[msg] Chyba inject módu (fáze 1): ${err}`);
-      await fallbackToClipboard(displayText);
+      await fallbackToClipboard(instructedText);
       return;
     }
 
@@ -635,7 +637,7 @@ async function handleTelegramMessage(
       : wsContext === 'agent'   ? '@workspace /new '
       : '';
 
-    const query = contextPrefix + displayText;
+    const query = contextPrefix + instructedText;
     logInfo(`[msg] Direct mode, wsContext=${wsContext}, query prefix: "${contextPrefix.trim() || '(none)'}"`);
 
     try {
@@ -645,9 +647,24 @@ async function handleTelegramMessage(
       });
     } catch (err) {
       logInfo(`[msg] Chyba otevření chatu (direct): ${err}`);
-      await fallbackToClipboard(displayText);
+      await fallbackToClipboard(instructedText);
     }
   }
+}
+
+function buildTelegramChatText(
+  messageText: string,
+  senderName: string,
+  addTelegramReplyInstruction: boolean,
+): string {
+  if (!addTelegramReplyInstruction) return messageText;
+
+  return (
+    `[Telegram message from ${senderName}. ` +
+    `When you finish the task, call telegram_reply with a concise summary of what was done, ` +
+    `which files changed, and any warnings or next steps.]\n\n` +
+    messageText
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -656,30 +673,32 @@ async function handleTelegramMessage(
 
 /** Odešle "✅ Hotovo!" zpět poslednímu odesilateli */
 async function replyDone(): Promise<void> {
-  if (!lastSenderChatId || !poller) {
+  const targetChatId = getReplyTargetChatId();
+  if (!targetChatId || !poller) {
     vscode.window.showWarningMessage('Telegram Bridge: No previous message to reply to.');
     return;
   }
   const workspaceName = vscode.workspace.name ?? 'VS Code';
   const msg = `✅ *Done!*\n_Project: ${workspaceName}_`;
-  await sendReplyWithRetry(lastSenderChatId, msg, '✅ Sent to Telegram');
+  await sendReplyWithRetry(targetChatId, msg, '✅ Sent to Telegram');
 }
 
 /** Odešle vlastní zprávu zpět poslednímu odesilateli */
 async function replyCustom(): Promise<void> {
-  if (!lastSenderChatId || !poller) {
+  const targetChatId = getReplyTargetChatId();
+  if (!targetChatId || !poller) {
     vscode.window.showWarningMessage('Telegram Bridge: No previous message to reply to.');
     return;
   }
   const workspaceName = vscode.workspace.name ?? 'VS Code';
   const input = await vscode.window.showInputBox({
-    title: `📤 Reply to Telegram → ${lastSenderName ?? lastSenderChatId}`,
+    title: `📤 Reply to Telegram → ${lastSenderName ?? targetChatId}`,
     prompt: 'Message text (Markdown supported)',
     placeHolder: `Project ${workspaceName}: generation complete, file saved.`,
     ignoreFocusOut: true,
   });
   if (!input) return;
-  await sendReplyWithRetry(lastSenderChatId, input, '📤 Sent to Telegram');
+  await sendReplyWithRetry(targetChatId, input, '📤 Sent to Telegram');
 }
 
 /**
@@ -720,6 +739,25 @@ async function sendReplyWithRetry(chatId: string, text: string, successMsg: stri
   } else if (action === 'View Log') {
     log.show();
   }
+}
+
+// ---------------------------------------------------------------------------
+// Výběr cílového Telegram chatId pro odpovědi
+//
+// Preferujeme posledního skutečného odesilatele. Pokud ale bridge po reloadu
+// běží bez nové příchozí zprávy a v allowlistu je přesně jedno Chat ID,
+// použijeme ho jako bezpečný fallback.
+// ---------------------------------------------------------------------------
+
+function getReplyTargetChatId(): string | undefined {
+  if (lastSenderChatId) return lastSenderChatId;
+
+  const allowedIds = config().get<string[]>('allowedChatIds') ?? [];
+  if (allowedIds.length === 1) {
+    return allowedIds[0];
+  }
+
+  return undefined;
 }
 
 // ---------------------------------------------------------------------------
@@ -772,7 +810,8 @@ async function startHttpServer(): Promise<void> {
         if (typeof parsed.message !== 'string' || !parsed.message) {
           res.writeHead(400); res.end(JSON.stringify({ error: 'message field (string) required' })); return;
         }
-        if (!lastSenderChatId || !poller) {
+        const targetChatId = getReplyTargetChatId();
+        if (!targetChatId || !poller) {
           res.writeHead(503);
           res.end(JSON.stringify({ error: 'No Telegram sender yet, or bridge is not running.' }));
           return;
@@ -780,13 +819,13 @@ async function startHttpServer(): Promise<void> {
         const msg = parsed.message;
         const chunks: string[] = [];
         for (let i = 0; i < msg.length; i += 4_096) chunks.push(msg.slice(i, i + 4_096));
-        for (const chunk of chunks) await poller.sendMessage(lastSenderChatId, chunk);
+        for (const chunk of chunks) await poller.sendMessage(targetChatId, chunk);
 
         const n = chunks.length;
         const summary =
           `✅ Odesláno do Telegramu (${msg.length} znaků, ${n} zpráv${n > 1 ? '' : 'a'}) ` +
           `[Telegram Bridge v${extensionVersion}]`;
-        logInfo(`[http/mcp] ${summary} → chatId=${lastSenderChatId}`);
+        logInfo(`[http/mcp] ${summary} → chatId=${targetChatId}`);
         vscode.window.showInformationMessage(`📱 ${summary}`);
         res.writeHead(200); res.end(JSON.stringify({ summary }));
       } catch (err) {

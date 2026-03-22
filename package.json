@@ -2,17 +2,17 @@
   "name": "telegram-bridge",
   "displayName": "Telegram Bridge for Copilot Chat",
   "description": "Bridge between Telegram and VS Code Copilot / AI Chat. Send messages from Telegram directly into the VS Code chat window.",
-  "version": "0.1.6",
+  "version": "0.1.8",
   "publisher": "local-dev",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/jirisedy/telegram-bridge.git"
+    "url": "https://github.com/jsedy7/telegram-copilot-bridge.git"
   },
   "bugs": {
-    "url": "https://github.com/jirisedy/telegram-bridge/issues"
+    "url": "https://github.com/jsedy7/telegram-copilot-bridge/issues"
   },
-  "homepage": "https://github.com/jirisedy/telegram-bridge#readme",
+  "homepage": "https://github.com/jsedy7/telegram-copilot-bridge#readme",
   "engines": {
     "vscode": "^1.93.0"
   },
@@ -105,6 +105,11 @@
           "default": true,
           "description": "Add a '\ud83d\udcf1 Name:' prefix before the message in the chat input."
         },
+        "telegramBridge.addTelegramReplyInstruction": {
+          "type": "boolean",
+          "default": true,
+          "description": "In inject/direct mode: prepend a short instruction that this message came from Telegram and that the agent should call telegram_reply when finished. Improves reply reliability in agent workflows."
+        },
         "telegramBridge.workspaceContext": {
           "type": "string",
           "enum": ["none", "workspace", "agent"],
@@ -139,7 +144,8 @@
       "telegram-bridge-sidebar": [
         {
           "id": "telegram-bridge.statusView",
-          "name": "Status"
+          "name": "Status",
+          "icon": "resources/icon.svg"
         }
       ]
     },

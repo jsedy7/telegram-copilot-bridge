@@ -6,6 +6,34 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.1.8] - 2026-03-22
+
+### Added
+
+- **Telegram provenance prefix for inject/direct mode** — incoming messages can now be automatically wrapped with a short instruction that tells the agent the task came from Telegram and that it should call `telegram_reply` when finished. This improves reply reliability in agent mode without requiring the user to repeat the instruction manually in every message.
+- New setting: `telegramBridge.addTelegramReplyInstruction` (default `true`).
+- **CI build workflow** — GitHub Actions now builds the extension on every push to `main`, every pull request, and manual workflow run, then uploads the packaged `.vsix` as a workflow artifact.
+- **Release automation improvements** — tag-based releases now validate that the tag matches `package.json`, publish the `.vsix` to GitHub Releases, and append useful links to the generated release notes (release page, direct download, changelog, compare diff).
+
+### Changed
+
+- In `inject` and `direct` mode, the message sent to Copilot can now include a Telegram-specific completion instruction before the actual user message.
+- GitHub metadata and README release links now point to the actual repository: `jsedy7/telegram-copilot-bridge`.
+
+---
+
+## [0.1.7] - 2026-03-21
+
+### Fixed
+
+- **MCP reply fallback after reload** — `telegram_reply`, `replyDone`, and `replyCustom` no longer depend only on the in-memory `lastSenderChatId`. If no sender is cached but `telegramBridge.allowedChatIds` contains exactly one Chat ID, that ID is used as a safe fallback. This fixes the confusing `No Telegram sender yet, or bridge is not running.` error after a window reload when the bridge is already connected.
+
+### Changed
+
+- Bridge startup log now includes the running extension version, e.g. `Spouštím Telegram Bridge v0.1.7 ...`.
+
+---
+
 ## [0.1.6] - 2026-03-20
 
 ### Fixed

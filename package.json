@@ -2,7 +2,7 @@
   "name": "telegram-bridge",
   "displayName": "Telegram Bridge for Copilot Chat",
   "description": "Bridge between Telegram and VS Code Copilot / AI Chat. Send messages from Telegram directly into the VS Code chat window.",
-  "version": "0.1.9",
+  "version": "0.2.1",
   "publisher": "local-dev",
   "license": "MIT",
   "repository": {
@@ -120,6 +120,18 @@
           ],
           "default": "workspace",
           "description": "Controls whether Copilot has access to your workspace files when answering messages from Telegram."
+        },
+        "telegramBridge.replyFormat": {
+          "type": "string",
+          "enum": ["plain", "Markdown", "MarkdownV2", "HTML"],
+          "enumDescriptions": [
+            "Plain text: no formatting, safest option, no escaping needed",
+            "Markdown: legacy format, supports *bold*, _italic_, `code`, [links](url). May fail on unescaped special characters.",
+            "MarkdownV2: strict format, requires escaping of _ * [ ] ( ) ~ ` > # + - = | { } . !. Best for full Markdown support.",
+            "HTML: supports <b>, <i>, <code>, <a href=\"\">. Only requires escaping of < > &. Recommended balance of features and reliability."
+          ],
+          "default": "HTML",
+          "description": "Format for Telegram reply messages. HTML is recommended for best balance of formatting features and reliability."
         }
       }
     },

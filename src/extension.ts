@@ -30,6 +30,21 @@ import * as os from 'os';
 import { TelegramPoller } from './telegramPoller';
 import { registerChatParticipant, setPendingTelegramReply } from './chatParticipant';
 import { StatusViewProvider } from './statusView';
+import {
+  DEFAULT_VERSION,
+  STATUS_BAR_PRIORITY,
+  TOOL_PREVIEW_MAX_LENGTH,
+  TELEGRAM_MESSAGE_MAX_LENGTH,
+  TIME_FORMAT_START,
+  TIME_FORMAT_END,
+  DEFAULT_WORKSPACE_INDEX,
+  MAX_REQUEST_BODY_SIZE,
+  MAX_MESSAGE_LENGTH,
+  MCP_AUTH_SECRET_LENGTH,
+} from './constants';
+import { sanitizeError, formatErrorForLog } from './errorHandler';
+import { RateLimiter } from './rateLimit';
+import { formatForTelegram, type TelegramParseMode } from './textFormatter';
 
 // ---------------------------------------------------------------------------
 // Stav modulu
@@ -40,19 +55,26 @@ let statusBar: vscode.StatusBarItem | undefined;
 let log: vscode.OutputChannel;
 let statusViewProvider: StatusViewProvider | undefined;
 
+/** Rate limiter for incoming Telegram messages */
+const rateLimiter = new RateLimiter();
+
 /** Chat ID posledního odesilatele – pro příkaz replyDone */
 let lastSenderChatId: string | undefined;
 /** Jméno posledního odesilatele */
 let lastSenderName: string | undefined;
 /** Verze extension z package.json – nastavena při aktivaci */
-let extensionVersion = '0.0.0';
+let extensionVersion = DEFAULT_VERSION;
 
 // MCP / HTTP bridge
 let httpServer: http.Server | undefined;
+/** Shared secret for MCP HTTP authentication */
+let mcpSecret: string | undefined;
 /** Adresář sdílených souborů bridge (~/.vscode-telegram-bridge/) */
 const BRIDGE_DIR = fspath.join(os.homedir(), '.vscode-telegram-bridge');
 /** Soubor s portem HTTP serveru (čte ho mcp-server.js) */
 const PORT_FILE  = fspath.join(BRIDGE_DIR, 'port');
+/** Soubor se shared secret pro MCP autentizaci */
+const SECRET_FILE = fspath.join(BRIDGE_DIR, 'secret');
 
 const SECRET_KEY = 'telegramBridge.botToken';
 /** Klíč v globalState – uchovává ID aktivního workspace napříč okny */
@@ -64,7 +86,7 @@ const ACTIVE_WORKSPACE_KEY = 'telegramBridge.activeWorkspaceId';
 
 /** HH:MM:SS.mmm timestamp */
 function ts(): string {
-  return new Date().toISOString().substring(11, 23);
+  return new Date().toISOString().substring(TIME_FORMAT_START, TIME_FORMAT_END);
 }
 
 function logInfo(msg: string): void {
@@ -72,13 +94,13 @@ function logInfo(msg: string): void {
 }
 
 function logError(msg: string, err?: unknown): void {
-  const detail = err instanceof Error ? err.message : err ? String(err) : '';
-  log.appendLine(`[${ts()}] ⚠ ${msg}${detail ? ': ' + detail : ''}`);
+  const detail = formatErrorForLog(err, msg);
+  log.appendLine(`[${ts()}] ⚠ ${detail}`);
 }
 
 
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
-  extensionVersion = context.extension.packageJSON.version ?? '0.0.0';
+  extensionVersion = context.extension.packageJSON.version ?? DEFAULT_VERSION;
   log = vscode.window.createOutputChannel('Telegram Bridge', { log: true });
   context.subscriptions.push(log);
   logInfo(`[init] Telegram Bridge v${extensionVersion} activating...`);
@@ -88,7 +110,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   await ensureMcpRegistered(context);
 
   // Status bar tlačítko
-  statusBar = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
+  statusBar = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, STATUS_BAR_PRIORITY);
   statusBar.command = 'telegram-bridge.toggle';
   statusBar.tooltip = 'Telegram Bridge (klikni pro přepnutí)';
   context.subscriptions.push(statusBar);
@@ -147,9 +169,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     'telegram_reply',
     {
       prepareInvocation(options) {
-        const preview = (options.input?.message ?? '').substring(0, 100);
+        const preview = (options.input?.message ?? '').substring(0, TOOL_PREVIEW_MAX_LENGTH);
         return {
-          invocationMessage: `📱 Telegram Bridge: odesílám zprávu… "${preview}${preview.length >= 100 ? '…' : ''}"`,
+          invocationMessage: `📱 Telegram Bridge: odesílám zprávu… "${preview}${preview.length >= TOOL_PREVIEW_MAX_LENGTH ? '…' : ''}"`,
         };
       },
 
@@ -177,15 +199,18 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           ]);
         }
 
-        // Telegram API limit: max 4096 znaků na zprávu
+        // Format text with configured parse mode
+        const { formatted, parseMode } = formatTelegramText(message);
+
+        // Telegram API limit: max TELEGRAM_MESSAGE_MAX_LENGTH znaků na zprávu
         const chunks: string[] = [];
-        for (let i = 0; i < message.length; i += 4_096) {
-          chunks.push(message.substring(i, i + 4_096));
+        for (let i = 0; i < formatted.length; i += TELEGRAM_MESSAGE_MAX_LENGTH) {
+          chunks.push(formatted.substring(i, i + TELEGRAM_MESSAGE_MAX_LENGTH));
         }
 
         try {
           for (const chunk of chunks) {
-            await poller.sendMessage(lastSenderChatId, chunk);
+            await poller.sendMessage(lastSenderChatId, chunk, parseMode);
           }
           const summary = `✅ Odesláno do Telegramu (${chunks.length} zpráv${chunks.length > 1 ? '' : 'a'}, ${message.length} znaků). [Telegram Bridge v${extensionVersion}]`;
           logInfo(`[tool:telegram_reply] ${summary} chatId=${lastSenderChatId}`);
@@ -195,9 +220,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           ]);
         } catch (err) {
           logError('[tool:telegram_reply] Chyba odeslání', err);
-          const detail = err instanceof Error ? err.message : String(err);
+          const sanitized = sanitizeError(err, 'telegram_reply');
           return new vscode.LanguageModelToolResult([
-            new vscode.LanguageModelTextPart(`Error: Odeslání do Telegramu selhalo: ${detail}`),
+            new vscode.LanguageModelTextPart(`Error: ${sanitized}`),
           ]);
         }
       },
@@ -309,7 +334,9 @@ async function runSetupWizard(context: vscode.ExtensionContext): Promise<void> {
         `Pošli botovi /chatid ze svého Telegramu pro zjištění svého Chat ID.`,
     );
   } catch (err) {
-    vscode.window.showErrorMessage(`❌ Chyba ověření tokenu: ${err}`);
+    const sanitized = sanitizeError(err, 'setup');
+    vscode.window.showErrorMessage(`❌ Chyba ověření tokenu: ${sanitized}`);
+    logError('[setup] Token validation failed', err);
     return;
   }
 
@@ -425,6 +452,15 @@ async function startBridge(context: vscode.ExtensionContext): Promise<void> {
 
   logInfo(`[bridge] Spouštím Telegram Bridge v${extensionVersion} – povolená Chat ID: ${[...allowedSet].join(', ')}`);
 
+  // Setup commands (/chatid, /start) are only allowed if allowlist is empty (initial setup)
+  // Otherwise they're disabled to prevent information disclosure
+  const allowSetupCommands = allowedSet.size === 0;
+  if (allowSetupCommands) {
+    logInfo('[bridge] Setup mode ENABLED – /chatid and /start commands are allowed for initial configuration');
+  } else {
+    logInfo('[bridge] Setup mode DISABLED – /chatid and /start commands are blocked for security');
+  }
+
   poller = new TelegramPoller(
     token,
     allowedSet,
@@ -446,6 +482,7 @@ async function startBridge(context: vscode.ExtensionContext): Promise<void> {
         });
       }
     },
+    allowSetupCommands,
   );
 
   poller.start();
@@ -516,6 +553,22 @@ async function handleTelegramMessage(
     return;
   }
 
+  // Rate limiting check
+  if (!rateLimiter.check(chatId)) {
+    const retryAfter = Math.ceil(rateLimiter.getRetryAfter(chatId) / 1000);
+    logInfo(`[msg] Rate limit exceeded for ${chatId} (${senderName}). Retry after ${retryAfter}s.`);
+    try {
+      const rateLimitMsg = `⚠️ *Rate limit exceeded*\n\n` +
+        `You're sending messages too quickly. Please wait ${retryAfter} second${retryAfter > 1 ? 's' : ''} before trying again.\n\n` +
+        `Limit: 10 messages per minute.`;
+      const { formatted, parseMode } = formatTelegramText(rateLimitMsg);
+      await poller?.sendMessage(chatId, formatted, parseMode);
+    } catch (err) {
+      logError('[msg] Failed to send rate limit notification', err);
+    }
+    return;
+  }
+
   logInfo(`[msg] ${senderName} (${chatId}): ${text.substring(0, 120)}`);
 
   // Zapamatuj si posledního odesilatele pro replyDone
@@ -534,12 +587,11 @@ async function handleTelegramMessage(
   // Speciální příkaz /chatid – odešle botovi zpět chat ID
   if (text.trim() === '/chatid' || text.trim() === '/start') {
     try {
-      await poller?.sendMessage(
-        chatId,
-        `🆔 *Tvoje Chat ID:* \`${chatId}\`\n\n` +
-          `Přidej ho do VS Code nastavení \`telegramBridge.allowedChatIds\`.\n` +
-          `Nebo spusť příkaz: *Telegram Bridge: Průvodce nastavením*`,
-      );
+      const chatIdMsg = `🆔 *Tvoje Chat ID:* \`${chatId}\`\n\n` +
+        `Přidej ho do VS Code nastavení \`telegramBridge.allowedChatIds\`.\n` +
+        `Nebo spusť příkaz: *Telegram Bridge: Průvodce nastavením*`;
+      const { formatted, parseMode } = formatTelegramText(chatIdMsg);
+      await poller?.sendMessage(chatId, formatted, parseMode);
     } catch {}
     return;
   }
@@ -657,14 +709,13 @@ function buildTelegramChatText(
   senderName: string,
   addTelegramReplyInstruction: boolean,
 ): string {
-  const taggedText = `from_telegram: ${messageText}`;
-  if (!addTelegramReplyInstruction) return taggedText;
+  if (!addTelegramReplyInstruction) return messageText;
 
   return (
     `[Telegram message from ${senderName}. ` +
     `When you finish the task, call telegram_reply with a concise summary of what was done, ` +
     `which files changed, and any warnings or next steps.]\n\n` +
-    taggedText
+    messageText
   );
 }
 
@@ -714,7 +765,8 @@ async function sendReplyWithRetry(chatId: string, text: string, successMsg: stri
 
   const trySend = async (): Promise<boolean> => {
     try {
-      await poller!.sendMessage(chatId, text);
+      const { formatted, parseMode } = formatTelegramText(text);
+      await poller!.sendMessage(chatId, formatted, parseMode);
       logInfo(`[reply] Sent to chatId=${chatId} (${text.length} chars)`);
       vscode.window.showInformationMessage(successMsg);
       return true;
@@ -749,6 +801,26 @@ async function sendReplyWithRetry(chatId: string, text: string, successMsg: stri
 // běží bez nové příchozí zprávy a v allowlistu je přesně jedno Chat ID,
 // použijeme ho jako bezpečný fallback.
 // ---------------------------------------------------------------------------
+
+/**
+ * Get configured Telegram reply format from VS Code settings.
+ */
+function getReplyFormat(): TelegramParseMode {
+  const cfg = vscode.workspace.getConfiguration('telegramBridge');
+  return (cfg.get<string>('replyFormat') || 'HTML') as TelegramParseMode;
+}
+
+/**
+ * Format text for Telegram with the configured parse mode.
+ * Applies appropriate escaping based on the format.
+ */
+function formatTelegramText(text: string): { formatted: string; parseMode: TelegramParseMode } {
+  const parseMode = getReplyFormat();
+  return {
+    formatted: formatForTelegram(text, parseMode),
+    parseMode,
+  };
+}
 
 function getReplyTargetChatId(): string | undefined {
   if (lastSenderChatId) return lastSenderChatId;
@@ -794,33 +866,90 @@ function config(): vscode.WorkspaceConfiguration {
 // mcp-server.js volá POST http://127.0.0.1:{port}/send s { message: string }.
 // Extension přepošle zprávu do Telegramu, zaznamená výsledek a vrátí JSON.
 // Server naslouchá pouze na loopback – žádný síťový přístup zvenčí.
+//
+// Security (v0.2.0):
+// - Shared secret authentication via X-MCP-Secret header
+// - Request body size limit (MAX_REQUEST_BODY_SIZE)
+// - Message length validation (MAX_MESSAGE_LENGTH)
 // ---------------------------------------------------------------------------
+
+function generateSecret(): string {
+  const bytes = new Uint8Array(MCP_AUTH_SECRET_LENGTH);
+  // Use Node.js crypto for secure random generation
+  const nodeCrypto = require('crypto');
+  nodeCrypto.randomFillSync(bytes);
+  return Buffer.from(bytes).toString('base64');
+}
 
 async function startHttpServer(): Promise<void> {
   if (httpServer) return; // již běží
+
+  // Generate shared secret for authentication
+  mcpSecret = generateSecret();
+
+  let requestSizeExceeded = false;
 
   httpServer = http.createServer((req, res) => {
     if (req.method !== 'POST' || req.url !== '/send') {
       res.writeHead(404); res.end(); return;
     }
+
+    // Verify authentication header
+    const providedSecret = req.headers['x-mcp-secret'];
+    if (providedSecret !== mcpSecret) {
+      logError('[http/mcp] Authentication failed: invalid or missing X-MCP-Secret header');
+      res.writeHead(401); res.end(JSON.stringify({ error: 'Unauthorized: invalid or missing secret' }));
+      return;
+    }
+
     let body = '';
-    req.on('data', (d: Buffer) => { body += d.toString(); });
+    let bodySize = 0;
+    requestSizeExceeded = false;
+
+    req.on('data', (d: Buffer) => {
+      bodySize += d.length;
+      if (bodySize > MAX_REQUEST_BODY_SIZE) {
+        requestSizeExceeded = true;
+        req.destroy();
+        res.writeHead(413); // Payload Too Large
+        res.end(JSON.stringify({ error: `Request body too large (max ${MAX_REQUEST_BODY_SIZE} bytes)` }));
+        return;
+      }
+      body += d.toString();
+    });
     req.on('end', async () => {
+      if (requestSizeExceeded) return; // Already handled
+
       try {
         const parsed = JSON.parse(body) as { message?: unknown };
         if (typeof parsed.message !== 'string' || !parsed.message) {
           res.writeHead(400); res.end(JSON.stringify({ error: 'message field (string) required' })); return;
         }
+
+        // Validate message length
+        const msg = parsed.message;
+        const msgBytes = Buffer.byteLength(msg, 'utf8');
+        if (msgBytes > MAX_MESSAGE_LENGTH) {
+          res.writeHead(413);
+          res.end(JSON.stringify({ 
+            error: `Message too large (${msgBytes} bytes, max ${MAX_MESSAGE_LENGTH} bytes)` 
+          }));
+          return;
+        }
+
         const targetChatId = getReplyTargetChatId();
         if (!targetChatId || !poller) {
           res.writeHead(503);
           res.end(JSON.stringify({ error: 'No Telegram sender yet, or bridge is not running.' }));
           return;
         }
-        const msg = parsed.message;
+        // Format text with configured parse mode
+        const { formatted, parseMode } = formatTelegramText(msg);
         const chunks: string[] = [];
-        for (let i = 0; i < msg.length; i += 4_096) chunks.push(msg.slice(i, i + 4_096));
-        for (const chunk of chunks) await poller.sendMessage(targetChatId, chunk);
+        for (let i = 0; i < formatted.length; i += TELEGRAM_MESSAGE_MAX_LENGTH) {
+          chunks.push(formatted.slice(i, i + TELEGRAM_MESSAGE_MAX_LENGTH));
+        }
+        for (const chunk of chunks) await poller.sendMessage(targetChatId, chunk, parseMode);
 
         const n = chunks.length;
         const summary =
@@ -831,8 +960,8 @@ async function startHttpServer(): Promise<void> {
         res.writeHead(200); res.end(JSON.stringify({ summary }));
       } catch (err) {
         logError('[http/mcp] Chyba odeslání', err);
-        const detail = err instanceof Error ? err.message : String(err);
-        res.writeHead(500); res.end(JSON.stringify({ error: detail }));
+        const sanitized = sanitizeError(err, 'http_send');
+        res.writeHead(500); res.end(JSON.stringify({ error: sanitized }));
       }
     });
   });
@@ -846,17 +975,24 @@ async function startHttpServer(): Promise<void> {
   try {
     fs.mkdirSync(BRIDGE_DIR, { recursive: true });
     fs.writeFileSync(PORT_FILE, String(port), 'utf8');
+    if (mcpSecret) {
+      fs.writeFileSync(SECRET_FILE, mcpSecret, 'utf8');
+    }
   } catch (err) {
-    logError('[http/mcp] Nepodařilo se zapsat port file', err);
+    logError('[http/mcp] Nepodařilo se zapsat port/secret files', err);
   }
-  logInfo(`[http/mcp] HTTP server naslouchá na 127.0.0.1:${port}`);
+  logInfo(`[http/mcp] HTTP server naslouchá na 127.0.0.1:${port} (authenticated)`);
 }
 
 function stopHttpServer(): void {
   if (!httpServer) return;
   httpServer.close();
   httpServer = undefined;
-  try { fs.unlinkSync(PORT_FILE); } catch { /* soubor neexistoval, ok */ }
+  mcpSecret = undefined;
+  try { 
+    fs.unlinkSync(PORT_FILE); 
+    fs.unlinkSync(SECRET_FILE);
+  } catch { /* soubory neexistovaly, ok */ }
   logInfo('[http/mcp] HTTP server zastaven.');
 }
 

@@ -6,11 +6,79 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
-## [0.1.9] - 2026-03-31
+## [0.2.1] - 2026-03-31
+
+### Added
+
+- **Configurable message formatting** — New `telegramBridge.replyFormat` setting allows choosing between four Telegram formatting modes:
+  - `plain` — No formatting (safest, no escaping needed)
+  - `Markdown` — Legacy format with `*bold*`, `_italic_`, `` `code` ``, `[links](url)` support
+  - `MarkdownV2` — Strict Markdown with full feature support and required escaping
+  - `HTML` — HTML tags (`<b>`, `<i>`, `<code>`, `<a href="">`). **Default and recommended**.
+- **Text formatting utilities** (`src/textFormatter.ts`) — New module with automatic escaping functions for each format mode, ensuring special characters are properly handled.
+- **Message Formatting documentation** — New README section explaining all format options, their trade-offs, and when to use each.
 
 ### Changed
 
-- **`from_telegram:` marker always present** — every Telegram message injected into Copilot Chat now starts with `from_telegram: ` so the AI agent can reliably detect the source regardless of whether `addTelegramReplyInstruction` is enabled. Previously, the marker was only included inside the instruction block (when the setting was on).
+- All `sendMessage()` calls now apply configured formatting with automatic text escaping based on selected mode.
+- Telegram replies now use HTML formatting by default (instead of plain text), providing better readability with bold text, code blocks, and clickable links while remaining reliable.
+- MCP `telegram_reply` tool, rate limit notifications, `/chatid` responses, and manual reply commands all use configured formatting.
+
+### Fixed
+
+- **Message formatting regression** — Restored rich text formatting in Telegram replies. Version 0.1.9 removed all formatting to fix parsing errors; this version reintroduces formatting with proper escaping to prevent those errors.
+
+---
+
+## [0.2.0] - 2026-03-31
+
+### Added
+
+- **MCP HTTP authentication** — HTTP bridge now requires shared secret authentication via `X-MCP-Secret` header. Secret is auto-generated on server startup and stored in `~/.vscode-telegram-bridge/secret`. Prevents unauthorized access to MCP endpoint.
+- **Request size limits** — HTTP server enforces 1 MB maximum request body size to prevent denial-of-service attacks. Returns HTTP 413 (Payload Too Large) when exceeded.
+- **Message length validation** — Incoming messages validated against 100 KB maximum size before processing. Protects against memory exhaustion and excessive API calls.
+- **Rate limiting** — Sliding window rate limiter enforces 10 messages per minute per Chat ID. Users receive notification when limit exceeded with retry-after time. Prevents spam and API quota abuse.
+- **Setup command protection** — `/chatid` and `/start` commands only allowed when `allowedChatIds` is empty (initial setup). After configuration, these commands are blocked to prevent information disclosure attacks.
+- **Constants module** (`src/constants.ts`) — All magic numbers extracted to application-wide constants with documentation. Improves maintainability and consistency.
+- **Error sanitization** (`src/errorHandler.ts`) — New error handling module sanitizes sensitive information (tokens, Chat IDs, file paths) from user-visible errors. Provides user-friendly generic messages while preserving detailed logs.
+- **Rate limiter module** (`src/rateLimit.ts`) — Reusable sliding window rate limiter with timestamp tracking and retry-after calculation.
+- **Development guide** (`DEVELOPMENT.md`) — Comprehensive developer documentation covering architecture, security model, testing, release process, and common issues.
+
+### Changed
+
+- **TypeScript strict mode enabled** — Full TypeScript strict compilation already active, ensuring type safety across the codebase.
+- **Enhanced security logging** — Setup mode state (enabled/disabled) now logged on bridge startup. Authentication failures logged with context.
+- **HTTP message chunking** — Uses `TELEGRAM_MESSAGE_MAX_LENGTH` constant (4096) instead of hardcoded value for consistency.
+- **Error messages** — All user-facing errors now sanitized to remove sensitive information. Detailed errors still logged for debugging.
+
+### Security
+
+- **HIGH:** Fixed `/chatid` bypass vulnerability (TB-010) — Setup commands no longer bypass allowlist after initial configuration
+- **HIGH:** Added MCP endpoint authentication (TB-006) — Prevents unauthorized tool invocations
+- **MEDIUM:** Implemented request size limits (TB-007) — Protects against DOS attacks
+- **MEDIUM:** Added message length validation (TB-008) — Prevents memory exhaustion
+- **MEDIUM:** Error message sanitization (TB-009) — Prevents information leakage
+
+### Fixed
+
+- **Crypto import** — Node.js `crypto` module now properly imported for secure random generation in `generateSecret()`.
+
+---
+
+## [0.1.9] - 2026-03-31
+
+### Added
+
+- **Agent documentation** — new `AGENT_TELEGRAM_GUIDE.md` with comprehensive instructions for AI agents on handling Telegram messages, calling `telegram_reply`, and configuring custom agents/skills/workspace instructions.
+
+### Changed
+
+- **Removed `from_telegram:` prefix** — the instruction block already identifies Telegram origin, making the prefix redundant.
+- **Removed Markdown parsing** — `parse_mode: 'Markdown'` removed from `sendMessage` to prevent entity parsing errors when AI responses contain unescaped special characters. Telegram replies now sent as plain text.
+
+### Fixed
+
+- **Entity parsing errors** — fixes "Can't find end of the entity starting at byte offset X" errors that occurred when AI responses contained Markdown-like syntax without proper escaping.
 
 ---
 

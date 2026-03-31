@@ -51,15 +51,15 @@ npm install
 npm run package
 ```
 
-This produces `telegram-bridge-0.1.0.vsix` in the project root.
+This produces a `.vsix` file in the project root, e.g. `telegram-bridge-0.1.9.vsix`.
 
-The filename will match the current package version, e.g. `telegram-bridge-0.1.8.vsix`.
+The filename matches the current package version.
 
 ### Step 3 — Install into VS Code
 
 **Option A — Terminal:**
 ```bash
-code --install-extension telegram-bridge-0.1.8.vsix
+code --install-extension telegram-bridge-<version>.vsix
 ```
 
 **Option B — VS Code UI:**
@@ -150,7 +150,15 @@ Type **"Open User Settings JSON"** and select it. Add the following block:
 
   // In inject/direct mode, prepend a short instruction that this task came
   // from Telegram and should be answered via telegram_reply when finished.
-  "telegramBridge.addTelegramReplyInstruction": true
+  "telegramBridge.addTelegramReplyInstruction": true,
+
+  // Format for Telegram reply messages.
+  // Options: "plain", "Markdown", "MarkdownV2", "HTML"
+  // - "plain":      No formatting, safest option
+  // - "Markdown":   Legacy format, *bold*, _italic_, `code`, [link](url)
+  // - "MarkdownV2": Stricter format with full Markdown support
+  // - "HTML":       <b>, <i>, <code>, <a href="">. Recommended (default).
+  "telegramBridge.replyFormat": "HTML"
 }
 ```
 
@@ -383,6 +391,39 @@ A typical day using the couch workflow:
 
 ---
 
+## Message Formatting
+
+Telegram supports rich text formatting in messages. The bridge lets you choose which format to use via the `telegramBridge.replyFormat` setting.
+
+### Available formats
+
+| Format | Supports | Escaping required | When to use |
+|---|---|---|---|
+| **plain** | None (plaintext) | ❌ None | Safest option. No formatting, no special character issues. |
+| **Markdown** | `*bold*`, `_italic_`, `` `code` ``, `[link](url)` | ⚠️ Some | Legacy format. May fail on unescaped special characters. |
+| **MarkdownV2** | Full Markdown | ✅ All special chars | Strict format. Best for full Markdown support but requires proper escaping. |
+| **HTML** | `<b>`, `<i>`, `<code>`, `<a href="">` | ✅ `< > &` only | **Recommended.** Good balance of features and reliability. |
+
+### Default: HTML
+
+HTML mode is the default because it:
+- Supports common formatting (bold, italic, code, links)
+- Only requires escaping of 3 characters (`<`, `>`, `&`)
+- Is more reliable than legacy Markdown (no "can't parse entities" errors)
+
+The bridge automatically escapes text for the selected format, so you don't need to worry about special characters in most cases.
+
+### Changing the format
+
+In your `settings.json`:
+```jsonc
+"telegramBridge.replyFormat": "HTML"  // or "plain", "Markdown", "MarkdownV2"
+```
+
+Or use the Settings UI (`Cmd+,` / `Ctrl+,`) and search for `telegramBridge.replyFormat`.
+
+---
+
 ## Security
 
 - **Bot token** is stored in the encrypted VS Code Secrets store — never in `settings.json`, never logged
@@ -410,6 +451,21 @@ A typical day using the couch workflow:
 
 ---
 
+## Agent Configuration
+
+For detailed instructions on configuring AI agents to handle Telegram messages and call `telegram_reply` automatically, see:
+
+**[AGENT_TELEGRAM_GUIDE.md](AGENT_TELEGRAM_GUIDE.md)**
+
+This guide covers:
+- How agents receive Telegram messages (inject/direct/participant modes)
+- Using the `telegram_reply` tool effectively
+- Configuring custom agents, skills, and workspace instructions
+- Example workflows (mobile → agent → mobile reply)
+- Troubleshooting agent tool access
+
+---
+
 ## Releases
 
 Pre-built `.vsix` files are attached to every [GitHub Release](https://github.com/jsedy7/telegram-copilot-bridge/releases).
@@ -429,8 +485,8 @@ The release notes also include links to:
 To publish a new downloadable release:
 
 ```bash
-git tag v0.1.8
-git push origin v0.1.8
+git tag v0.2.0
+git push origin v0.2.0
 ```
 
 See [CHANGELOG.md](CHANGELOG.md) for a full history of changes.

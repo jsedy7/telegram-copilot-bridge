@@ -4,3 +4,10 @@ out/
 *.vsix
 .vscode-test/
 *.js.map
+
+# Internal workflow files (not for public repo)
+AGENTS.md
+NOW_NEXT.md
+TASKS.md
+SECURITY_REVIEW.md
+CODE_REVIEW.md

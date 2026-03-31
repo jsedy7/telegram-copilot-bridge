@@ -20,7 +20,9 @@ const fs   = require('fs');
 const path = require('path');
 const os   = require('os');
 
-const PORT_FILE = path.join(os.homedir(), '.vscode-telegram-bridge', 'port');
+const BRIDGE_DIR  = path.join(os.homedir(), '.vscode-telegram-bridge');
+const PORT_FILE   = path.join(BRIDGE_DIR, 'port');
+const SECRET_FILE = path.join(BRIDGE_DIR, 'secret');
 
 // ---------------------------------------------------------------------------
 // HTTP call to the VS Code extension
@@ -28,10 +30,14 @@ const PORT_FILE = path.join(os.homedir(), '.vscode-telegram-bridge', 'port');
 
 function callExtension(message) {
   return new Promise((resolve, reject) => {
-    let port;
-    try { port = parseInt(fs.readFileSync(PORT_FILE, 'utf8').trim(), 10); }
+    let port, secret;
+    try { 
+      port = parseInt(fs.readFileSync(PORT_FILE, 'utf8').trim(), 10); 
+      secret = fs.readFileSync(SECRET_FILE, 'utf8').trim();
+    }
     catch { reject(new Error('Telegram Bridge is not running. Start it in VS Code first.')); return; }
     if (!port || isNaN(port)) { reject(new Error('Invalid port file. Restart the bridge in VS Code.')); return; }
+    if (!secret) { reject(new Error('Missing authentication secret. Restart the bridge in VS Code.')); return; }
 
     const body = JSON.stringify({ message });
     const req = http.request(
@@ -43,6 +49,7 @@ function callExtension(message) {
         headers: {
           'Content-Type': 'application/json',
           'Content-Length': Buffer.byteLength(body),
+          'X-MCP-Secret': secret,
         },
       },
       (res) => {

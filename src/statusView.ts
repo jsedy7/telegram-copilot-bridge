@@ -6,6 +6,13 @@
  */
 
 import * as vscode from 'vscode';
+import {
+  STATUS_PREVIEW_MAX_LENGTH,
+  STATUS_PREVIEW_TRUNCATE_LENGTH,
+  MS_PER_SECOND,
+  SECONDS_PER_MINUTE,
+  SECONDS_PER_HOUR,
+} from './constants';
 
 // ---------------------------------------------------------------------------
 // Public state shape
@@ -133,8 +140,8 @@ export class StatusViewProvider implements vscode.TreeDataProvider<vscode.TreeIt
     if (lastMessage) {
       const msgItem = new vscode.TreeItem('Last message');
       const preview =
-        lastMessage.preview.length > 45
-          ? lastMessage.preview.substring(0, 42) + '…'
+        lastMessage.preview.length > STATUS_PREVIEW_MAX_LENGTH
+          ? lastMessage.preview.substring(0, STATUS_PREVIEW_TRUNCATE_LENGTH) + '…'
           : lastMessage.preview;
       msgItem.description = `${lastMessage.sender}: ${preview}`;
       msgItem.iconPath = new vscode.ThemeIcon('comment');
@@ -155,8 +162,8 @@ export class StatusViewProvider implements vscode.TreeDataProvider<vscode.TreeIt
 // ---------------------------------------------------------------------------
 
 function formatAgo(time: Date): string {
-  const diff = Math.floor((Date.now() - time.getTime()) / 1000);
-  if (diff < 60) return `${diff}s ago`;
-  if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
-  return `${Math.floor(diff / 3600)}h ago`;
+  const diff = Math.floor((Date.now() - time.getTime()) / MS_PER_SECOND);
+  if (diff < SECONDS_PER_MINUTE) return `${diff}s ago`;
+  if (diff < SECONDS_PER_HOUR) return `${Math.floor(diff / SECONDS_PER_MINUTE)}m ago`;
+  return `${Math.floor(diff / SECONDS_PER_HOUR)}h ago`;
 }

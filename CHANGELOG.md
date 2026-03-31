@@ -6,6 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.1.9] - 2026-03-31
+
+### Changed
+
+- **`from_telegram:` marker always present** — every Telegram message injected into Copilot Chat now starts with `from_telegram: ` so the AI agent can reliably detect the source regardless of whether `addTelegramReplyInstruction` is enabled. Previously, the marker was only included inside the instruction block (when the setting was on).
+
+---
+
 ## [0.1.8] - 2026-03-22
 
 ### Added

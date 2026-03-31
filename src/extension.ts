@@ -657,13 +657,14 @@ function buildTelegramChatText(
   senderName: string,
   addTelegramReplyInstruction: boolean,
 ): string {
-  if (!addTelegramReplyInstruction) return messageText;
+  const taggedText = `from_telegram: ${messageText}`;
+  if (!addTelegramReplyInstruction) return taggedText;
 
   return (
     `[Telegram message from ${senderName}. ` +
     `When you finish the task, call telegram_reply with a concise summary of what was done, ` +
     `which files changed, and any warnings or next steps.]\n\n` +
-    messageText
+    taggedText
   );
 }
 

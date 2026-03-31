@@ -2,7 +2,7 @@
   "name": "telegram-bridge",
   "displayName": "Telegram Bridge for Copilot Chat",
   "description": "Bridge between Telegram and VS Code Copilot / AI Chat. Send messages from Telegram directly into the VS Code chat window.",
-  "version": "0.1.8",
+  "version": "0.1.9",
   "publisher": "local-dev",
   "license": "MIT",
   "repository": {
